@@ -44,7 +44,7 @@ func (f *fakeDocker) Health(_ context.Context, service string) (string, error) {
 
 type fakeBackup struct{ err error }
 
-func (f fakeBackup) Backup(context.Context) (string, error) { return "flixer-test.dump", f.err }
+func (f fakeBackup) Backup(context.Context, string) (string, error) { return "flixer-test.dump", f.err }
 
 func newUpdater(t *testing.T, d *fakeDocker, b Backuper) *Updater {
 	t.Helper()

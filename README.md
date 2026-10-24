@@ -32,7 +32,7 @@ Components: `flixer` (service `api`), `web`, `streamer`, `indexer`. Versions mus
 | ---------------------- | ------------ | ------------------------------------------------------------------ |
 | `UPDATER_TOKEN`        | required     | At least 16 characters; shared with the Flixer API.                |
 | `PORT`                 | `8093`       |                                                                    |
-| `DATABASE_URL`         | unset        | `postgres://user:pass@host/db`. Without it, no backup is taken.    |
+| `DATABASE_URL`         | unset        | Optional fallback. Normally Flixer sends its own database URL with each update request. |
 | `BACKUP_DIR`           | `/backups`   | Last 5 dumps are kept.                                             |
 | `STATE_DIR`            | `/state`     | `state.json` and `versions.env`.                                   |
 | `HEALTH_TIMEOUT`       | `3m`         | Per service, minimum `10s`.                                        |
@@ -61,7 +61,6 @@ services:
     expose: ["8093"]
     environment:
       UPDATER_TOKEN: ${UPDATER_TOKEN}
-      DATABASE_URL: postgres://...
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ${PROJECT_DIR:-.}:${PROJECT_DIR:-.}

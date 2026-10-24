@@ -54,7 +54,7 @@ type Docker interface {
 
 // Backuper snapshots the database before an update.
 type Backuper interface {
-	Backup(ctx context.Context) (string, error)
+	Backup(ctx context.Context, databaseURL string) (string, error)
 }
 
 // Request asks for components to be moved to specific releases.
@@ -64,6 +64,8 @@ type Request struct {
 	// Current maps component to the release the caller sees running; used as the rollback target when the updater has
 	// not pinned one itself yet.
 	Current map[string]string `json:"current"`
+	// DatabaseURL is the Postgres connection string to back up. It is used for the backup only and never stored or logged.
+	DatabaseURL string `json:"databaseUrl"`
 }
 
 // Run is the record of one update.
@@ -222,18 +224,18 @@ func (u *Updater) Start(req Request) (Run, error) {
 	u.wg.Add(1)
 	go func() {
 		defer u.wg.Done()
-		u.execute(order, targets, previous)
+		u.execute(order, targets, previous, req.DatabaseURL)
 	}()
 	return snapshot, nil
 }
 
-func (u *Updater) execute(order []string, targets, previous map[string]string) {
+func (u *Updater) execute(order []string, targets, previous map[string]string, databaseURL string) {
 	ctx := context.Background()
 	pinnedBefore := u.Snapshot().Versions
 
 	if u.opts.Backup != nil {
 		u.step("backup", "Backing up the database")
-		name, err := u.opts.Backup.Backup(ctx)
+		name, err := u.opts.Backup.Backup(ctx, databaseURL)
 		if err != nil {
 			u.finish(StatusFailed, "The database backup failed, so nothing was changed: "+err.Error())
 			return

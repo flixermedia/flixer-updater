@@ -25,13 +25,17 @@ type Postgres struct {
 }
 
 // Backup writes a custom-format dump and returns its file name.
-func (p Postgres) Backup(ctx context.Context) (string, error) {
-	if p.DatabaseURL == "" {
-		return "", errors.New("DATABASE_URL is not set")
+// databaseURL comes from the update request; the configured DatabaseURL is only a fallback.
+func (p Postgres) Backup(ctx context.Context, databaseURL string) (string, error) {
+	if databaseURL == "" {
+		databaseURL = p.DatabaseURL
 	}
-	parsed, err := url.Parse(p.DatabaseURL)
+	if databaseURL == "" {
+		return "", errors.New("no database URL was provided")
+	}
+	parsed, err := url.Parse(databaseURL)
 	if err != nil {
-		return "", fmt.Errorf("invalid DATABASE_URL: %w", err)
+		return "", fmt.Errorf("invalid database URL: %w", err)
 	}
 	if err := os.MkdirAll(p.Dir, 0o755); err != nil {
 		return "", err

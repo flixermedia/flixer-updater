@@ -62,11 +62,7 @@ func run(logger *slog.Logger) error {
 		StateDir: cfg.StateDir, HealthTimeout: cfg.HealthTimeout, PollInterval: cfg.PollInterval, RestartServices: cfg.RestartServices, Logger: logger,
 		Docker: docker.New(cfg.ProjectName, cfg.ProjectDir, cfg.ComposeFile, envFiles, docker.ExecRunner),
 	}
-	if cfg.DatabaseURL != "" {
-		opts.Backup = backup.Postgres{DatabaseURL: cfg.DatabaseURL, Dir: cfg.BackupDir, Keep: cfg.BackupsKept}
-	} else {
-		logger.Warn("DATABASE_URL is not set: updates will run without a database backup")
-	}
+	opts.Backup = backup.Postgres{DatabaseURL: cfg.DatabaseURL, Dir: cfg.BackupDir, Keep: cfg.BackupsKept}
 	manager, err := updater.New(opts)
 	if err != nil {
 		return err
