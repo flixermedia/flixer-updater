@@ -1,12 +1,14 @@
-FROM golang:1.25-alpine AS build
+FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS build
 ARG APP_VERSION=dev
+ARG TARGETOS
+ARG TARGETARCH
 WORKDIR /src
 
 COPY go.mod ./
 COPY cmd ./cmd
 COPY internal ./internal
 
-RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w -X main.version=${APP_VERSION}" -o /out/flixer-updater ./cmd/flixer-updater
+RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -trimpath -ldflags="-s -w -X main.version=${APP_VERSION}" -o /out/flixer-updater ./cmd/flixer-updater
 
 FROM alpine:3.22 AS runtime
 ARG APP_VERSION=dev
