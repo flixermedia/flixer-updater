@@ -12,7 +12,9 @@ import (
 type Config struct {
 	Version string
 	Addr    string
-	Token   string
+	// Token is an explicit override; otherwise it is derived from the shared secret in SecretFile.
+	Token      string
+	SecretFile string
 
 	// ComposeFile, ProjectDir and ProjectName identify the stack to update. They are detected from the updater's own
 	// container labels when left empty.
@@ -37,6 +39,7 @@ func FromEnv(getenv func(string) string, version string) (Config, error) {
 		Version:         version,
 		Addr:            ":" + valueOr(getenv("PORT"), "8093"),
 		Token:           strings.TrimSpace(getenv("UPDATER_TOKEN")),
+		SecretFile:      strings.TrimSpace(getenv("STREAM_TOKEN_SECRET_FILE")),
 		ComposeFile:     strings.TrimSpace(getenv("COMPOSE_FILE")),
 		ProjectDir:      strings.TrimSpace(getenv("COMPOSE_PROJECT_DIR")),
 		ProjectName:     strings.TrimSpace(getenv("COMPOSE_PROJECT_NAME")),
@@ -48,8 +51,11 @@ func FromEnv(getenv func(string) string, version string) (Config, error) {
 		PollInterval:    3 * time.Second,
 		RestartServices: splitList(valueOr(getenv("RESTART_SERVICES"), "proxy")),
 	}
-	if len(cfg.Token) < 16 {
-		return Config{}, errors.New("UPDATER_TOKEN must be set to a random string of at least 16 characters")
+	if cfg.Token == "" && cfg.SecretFile == "" {
+		return Config{}, errors.New("set STREAM_TOKEN_SECRET_FILE (the shared secret file) or UPDATER_TOKEN")
+	}
+	if cfg.Token != "" && len(cfg.Token) < 16 {
+		return Config{}, errors.New("UPDATER_TOKEN must be at least 16 characters")
 	}
 	if raw := strings.TrimSpace(getenv("HEALTH_TIMEOUT")); raw != "" {
 		timeout, err := time.ParseDuration(raw)

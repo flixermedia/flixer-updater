@@ -12,7 +12,8 @@ import (
 )
 
 // New returns the HTTP handler.
-func New(token, version string, u *updater.Updater) http.Handler {
+// token is called per request because the shared secret file may be written after the updater starts.
+func New(token func() string, version string, u *updater.Updater) http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
@@ -47,10 +48,11 @@ func New(token, version string, u *updater.Updater) http.Handler {
 	return mux
 }
 
-func authed(token string, next http.HandlerFunc) http.HandlerFunc {
+func authed(token func() string, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		supplied, found := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-		if !found || subtle.ConstantTimeCompare([]byte(supplied), []byte(token)) != 1 {
+		expected := token()
+		if !found || expected == "" || subtle.ConstantTimeCompare([]byte(supplied), []byte(expected)) != 1 {
 			w.Header().Set("WWW-Authenticate", "Bearer")
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "A valid updater token is required."})
 			return

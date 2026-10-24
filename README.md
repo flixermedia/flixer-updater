@@ -15,7 +15,7 @@ Progress, the backup name and any error are reported through `GET /v1/status`.
 
 ## API
 
-All `/v1` routes need `Authorization: Bearer <UPDATER_TOKEN>`.
+All `/v1` routes need `Authorization: Bearer <token>`. The token is derived automatically from the stream token secret shared on the `flixer-secrets` volume (`hex(HMAC-SHA256(secret, "flixer-updater-token"))`), so nothing has to be configured.
 
 | Route            | Description                                                                 |
 | ---------------- | --------------------------------------------------------------------------- |
@@ -30,7 +30,8 @@ Components: `flixer` (service `api`), `web`, `streamer`, `indexer`. Versions mus
 
 | Variable               | Default      | Notes                                                              |
 | ---------------------- | ------------ | ------------------------------------------------------------------ |
-| `UPDATER_TOKEN`        | required     | At least 16 characters; shared with the Flixer API.                |
+| `STREAM_TOKEN_SECRET_FILE` | required unless `UPDATER_TOKEN` is set | The shared secret file (mount `flixer-secrets` read-only). Read per request, so it may appear after start. |
+| `UPDATER_TOKEN`        | unset        | Optional explicit override (16+ characters); must then also be set on the Flixer API. |
 | `PORT`                 | `8093`       |                                                                    |
 | `DATABASE_URL`         | unset        | Optional fallback. Normally Flixer sends its own database URL with each update request. |
 | `BACKUP_DIR`           | `/backups`   | Last 5 dumps are kept.                                             |
@@ -60,9 +61,10 @@ services:
     restart: unless-stopped
     expose: ["8093"]
     environment:
-      UPDATER_TOKEN: ${UPDATER_TOKEN}
+      STREAM_TOKEN_SECRET_FILE: /run/flixer-secrets/stream-token-secret
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      - flixer-secrets:/run/flixer-secrets:ro
       - ${PROJECT_DIR:-.}:${PROJECT_DIR:-.}
       - updater-state:/state
       - ./backups:/backups

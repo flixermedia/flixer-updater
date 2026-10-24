@@ -17,7 +17,7 @@ func handler(t *testing.T) http.Handler {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return New(token, "1.2.3", u)
+	return New(func() string { return token }, "1.2.3", u)
 }
 
 func do(h http.Handler, method, path, auth, body string) *httptest.ResponseRecorder {

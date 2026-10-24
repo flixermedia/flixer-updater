@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/flixermedia/flixer-updater/internal/auth"
 	"github.com/flixermedia/flixer-updater/internal/backup"
 	"github.com/flixermedia/flixer-updater/internal/config"
 	"github.com/flixermedia/flixer-updater/internal/docker"
@@ -70,7 +71,7 @@ func run(logger *slog.Logger) error {
 
 	srv := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           server.New(cfg.Token, cfg.Version, manager),
+		Handler:           server.New(auth.Resolver(cfg.Token, cfg.SecretFile), cfg.Version, manager),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      30 * time.Second,
