@@ -15,14 +15,13 @@ ARG APP_VERSION=dev
 # The Docker CLI/Compose plugin manage the stack; PostgreSQL client provides pg_dump and pg_restore.
 RUN apk add --no-cache ca-certificates docker-cli docker-cli-compose postgresql17-client wget \
     && command -v pg_dump >/dev/null && command -v pg_restore >/dev/null \
-    && mkdir -p /state /backups
+    && mkdir -p /state
 
 COPY --from=build /out/flixer-updater /usr/local/bin/flixer-updater
 
 ENV APP_VERSION=${APP_VERSION} \
     PORT=8093 \
-    STATE_DIR=/state \
-    BACKUP_DIR=/backups
+    STATE_DIR=/state
 
 EXPOSE 8093
 

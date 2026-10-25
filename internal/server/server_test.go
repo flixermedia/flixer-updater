@@ -79,8 +79,8 @@ func backupHandler(t *testing.T) (http.Handler, *updater.Updater, *fullbackup.Se
 	t.Helper()
 	root := t.TempDir()
 	docker := &backupDocker{}
-	service := &fullbackup.Service{Dir: root + "/backups", PassphraseFile: root + "/backups/.passphrase", ConfigDir: root + "/config", SecretsDir: root + "/secrets", MetadataDir: root + "/metadata", DatabaseURL: "postgres://user:pass@localhost/db", Docker: docker, HealthTimeout: time.Second, PollInterval: time.Millisecond, Dump: func(_ context.Context, _ string, path string) error { return os.WriteFile(path, []byte("dump"), 0600) }, RestoreDB: func(context.Context, string, string) error { return nil }}
-	for _, dir := range []string{service.ConfigDir, service.SecretsDir, service.MetadataDir} {
+	service := &fullbackup.Service{Dir: root + "/backups", PassphraseFile: root + "/backups/.passphrase", ConfigDir: root + "/config", SecretsDir: root + "/secrets", CacheDir: root + "/cache", DatabaseURL: "postgres://user:pass@localhost/db", Docker: docker, HealthTimeout: time.Second, PollInterval: time.Millisecond, Dump: func(_ context.Context, _ string, path string) error { return os.WriteFile(path, []byte("dump"), 0600) }, RestoreDB: func(context.Context, string, string) error { return nil }}
+	for _, dir := range []string{service.ConfigDir, service.SecretsDir, service.CacheDir} {
 		if err := os.MkdirAll(dir, 0700); err != nil {
 			t.Fatal(err)
 		}

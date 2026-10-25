@@ -47,8 +47,8 @@ func (d *testDocker) Health(context.Context, string) (string, error) { return "h
 func testService(t *testing.T) *Service {
 	t.Helper()
 	root := t.TempDir()
-	s := &Service{Dir: filepath.Join(root, "backups"), PassphraseFile: filepath.Join(root, "backups", ".passphrase"), ConfigDir: filepath.Join(root, "config"), SecretsDir: filepath.Join(root, "secrets"), MetadataDir: filepath.Join(root, "metadata"), DatabaseURL: "postgres://user:password@localhost/flixer", HealthTimeout: time.Second, PollInterval: time.Millisecond}
-	for _, d := range []string{s.ConfigDir, s.SecretsDir, s.MetadataDir} {
+	s := &Service{Dir: filepath.Join(root, "backups"), PassphraseFile: filepath.Join(root, "backups", ".passphrase"), ConfigDir: filepath.Join(root, "config"), SecretsDir: filepath.Join(root, "secrets"), CacheDir: filepath.Join(root, "cache"), DatabaseURL: "postgres://user:password@localhost/flixer", HealthTimeout: time.Second, PollInterval: time.Millisecond}
+	for _, d := range []string{s.ConfigDir, s.SecretsDir, s.CacheDir} {
 		if err := os.MkdirAll(d, 0700); err != nil {
 			t.Fatal(err)
 		}
@@ -108,7 +108,7 @@ func ptr(s string) *string { return &s }
 
 func TestSafetyBackupEncryptsOnlyWithPassphraseAndTouchesNothingElse(t *testing.T) {
 	s := testService(t)
-	if err := os.MkdirAll(filepath.Join(s.Dir, ".uploads"), 0700); err != nil {
+	if err := os.MkdirAll(filepath.Join(s.Dir, "uploads"), 0700); err != nil {
 		t.Fatal(err)
 	}
 	others := map[string]string{
@@ -117,7 +117,7 @@ func TestSafetyBackupEncryptsOnlyWithPassphraseAndTouchesNothingElse(t *testing.
 		"flixer-20250101T000000Z.flxbak": "flixer-written",
 		"flixer-x.flxbak.tmp":            "partial",
 		"notes.txt":                      "junk",
-		".uploads/u1":                    "upload",
+		"uploads/u1":                     "upload",
 	}
 	for n, c := range others {
 		if err := os.WriteFile(filepath.Join(s.Dir, n), []byte(c), 0600); err != nil {

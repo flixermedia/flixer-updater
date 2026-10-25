@@ -16,19 +16,19 @@ import (
 
 func TestEncryptedRoundTripMultiChunk(t *testing.T) {
 	dir := t.TempDir()
-	metadata := filepath.Join(dir, "metadata")
-	if err := os.MkdirAll(metadata, 0700); err != nil {
+	cache := filepath.Join(dir, "cache")
+	if err := os.MkdirAll(cache, 0700); err != nil {
 		t.Fatal(err)
 	}
 	data := make([]byte, chunkSize*3+123)
 	if _, err := cryptorand.Read(data); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(metadata, "large.bin"), data, 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(cache, "large.bin"), data, 0600); err != nil {
 		t.Fatal(err)
 	}
 	file := filepath.Join(dir, "test.flxbak")
-	h, err := WriteArchive(file, []string{"metadata"}, map[string]string{"metadata": metadata}, map[string]string{"flixer": "1.2.3"}, "correct horse")
+	h, err := WriteArchive(file, []string{"cache"}, map[string]string{"cache": cache}, map[string]string{"flixer": "1.2.3"}, "correct horse")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,7 +40,7 @@ func TestEncryptedRoundTripMultiChunk(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	actual, err := os.ReadFile(filepath.Join(stage, "metadata", "large.bin"))
+	actual, err := os.ReadFile(filepath.Join(stage, "cache", "large.bin"))
 	if err != nil || !bytes.Equal(data, actual) {
 		t.Fatalf("roundtrip mismatch: %v", err)
 	}
@@ -95,7 +95,7 @@ func TestExtractRejectsTraversalAndSymlink(t *testing.T) {
 		name  string
 		kind  byte
 		entry string
-	}{{"traversal", tar.TypeReg, "../escape"}, {"absolute", tar.TypeReg, "/escape"}, {"symlink", tar.TypeSymlink, "metadata/link"}, {"hardlink", tar.TypeLink, "metadata/link"}} {
+	}{{"traversal", tar.TypeReg, "../escape"}, {"absolute", tar.TypeReg, "/escape"}, {"symlink", tar.TypeSymlink, "cache/link"}, {"hardlink", tar.TypeLink, "cache/link"}} {
 		t.Run(tc.name, func(t *testing.T) {
 			file := writeUnsafeArchive(t, tc.entry, tc.kind)
 			if _, _, err := Extract(file, t.TempDir(), ""); !errors.Is(err, ErrCorrupt) {
@@ -109,12 +109,12 @@ func writeUnsafeArchive(t *testing.T, name string, kind byte) string {
 	t.Helper()
 	dir := t.TempDir()
 	created := "2026-01-01T00:00:00Z"
-	h := Header{CreatedAt: created, Components: []string{"metadata"}, Versions: map[string]string{}}
+	h := Header{CreatedAt: created, Components: []string{"cache"}, Versions: map[string]string{}}
 	hb, _ := json.Marshal(h)
 	var body bytes.Buffer
 	gz := gzip.NewWriter(&body)
 	tw := tar.NewWriter(gz)
-	manifest, _ := json.Marshal(Manifest{Version: 1, CreatedAt: created, Components: []string{"metadata"}, Versions: map[string]string{}})
+	manifest, _ := json.Marshal(Manifest{Version: 1, CreatedAt: created, Components: []string{"cache"}, Versions: map[string]string{}})
 	_ = tw.WriteHeader(&tar.Header{Name: "manifest.json", Mode: 0600, Size: int64(len(manifest))})
 	_, _ = tw.Write(manifest)
 	header := &tar.Header{Name: name, Mode: 0600, Size: 1, Typeflag: kind}
@@ -122,7 +122,7 @@ func writeUnsafeArchive(t *testing.T, name string, kind byte) string {
 		header.Linkname = "../../etc/passwd"
 	}
 	if kind == tar.TypeLink {
-		header.Linkname = "metadata/target"
+		header.Linkname = "cache/target"
 	}
 	_ = tw.WriteHeader(header)
 	if kind == tar.TypeReg {
@@ -178,7 +178,7 @@ func TestArchivePlainHeader(t *testing.T) {
 // createdAt/versions differ in formatting from the header.
 func TestExtractAcceptsFlixerLayout(t *testing.T) {
 	dir := t.TempDir()
-	comps := []string{"database", "config", "secrets", "metadata"}
+	comps := []string{"database", "config", "secrets", "cache"}
 	hb, _ := json.Marshal(Header{CreatedAt: "2026-01-01T00:00:00.000Z", Components: comps})
 	var body bytes.Buffer
 	gz := gzip.NewWriter(&body)
@@ -196,9 +196,9 @@ func TestExtractAcceptsFlixerLayout(t *testing.T) {
 		{"config/key", "k", false},
 		{"secrets/", "", true},
 		{"secrets/token", "t", false},
-		{"metadata/", "", true},
-		{"metadata/sub/", "", true},
-		{"metadata/sub/a.jpg", "img", false},
+		{"cache/", "", true},
+		{"cache/sub/", "", true},
+		{"cache/sub/a.jpg", "img", false},
 	}
 	for _, f := range files {
 		h := &tar.Header{Name: f.name, Mode: 0644, Size: int64(len(f.data)), Typeflag: tar.TypeReg}
@@ -221,7 +221,7 @@ func TestExtractAcceptsFlixerLayout(t *testing.T) {
 	if _, _, err := Extract(file, stage, ""); err != nil {
 		t.Fatal(err)
 	}
-	for _, p := range []string{"database.dump", "config/flixer-config.db", "config/key", "secrets/token", "metadata/sub/a.jpg"} {
+	for _, p := range []string{"database.dump", "config/flixer-config.db", "config/key", "secrets/token", "cache/sub/a.jpg"} {
 		if _, err := os.Stat(filepath.Join(stage, p)); err != nil {
 			t.Fatalf("missing %s: %v", p, err)
 		}

@@ -29,7 +29,7 @@ type Config struct {
 	PassphraseFile string
 	ConfigDir      string
 	SecretsDir     string
-	MetadataDir    string
+	CacheDir       string
 	DatabaseURL    string
 	BackupsKept    int
 
@@ -41,6 +41,7 @@ type Config struct {
 
 // FromEnv builds a Config from an environment lookup function.
 func FromEnv(getenv func(string) string, version string) (Config, error) {
+	dataPath := valueOr(getenv("DATA_PATH"), "/data")
 	cfg := Config{
 		Version:         version,
 		Addr:            ":" + valueOr(getenv("PORT"), "8093"),
@@ -50,11 +51,11 @@ func FromEnv(getenv func(string) string, version string) (Config, error) {
 		ProjectDir:      strings.TrimSpace(getenv("COMPOSE_PROJECT_DIR")),
 		ProjectName:     strings.TrimSpace(getenv("COMPOSE_PROJECT_NAME")),
 		StateDir:        valueOr(getenv("STATE_DIR"), "/state"),
-		BackupDir:       valueOr(getenv("BACKUP_DIR"), "/backups"),
+		BackupDir:       filepath.Join(dataPath, "backups"),
 		PassphraseFile:  strings.TrimSpace(getenv("BACKUP_PASSPHRASE_FILE")),
-		ConfigDir:       valueOr(getenv("CONFIG_DIR"), "/var/lib/flixer/config"),
+		ConfigDir:       filepath.Join(dataPath, "config"),
 		SecretsDir:      valueOr(getenv("SECRETS_DIR"), "/run/flixer-secrets"),
-		MetadataDir:     valueOr(getenv("METADATA_DIR"), "/data/metadata"),
+		CacheDir:        filepath.Join(dataPath, "cache"),
 		DatabaseURL:     strings.TrimSpace(getenv("DATABASE_URL")),
 		BackupsKept:     5,
 		HealthTimeout:   3 * time.Minute,

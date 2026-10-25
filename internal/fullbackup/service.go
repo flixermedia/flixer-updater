@@ -30,14 +30,14 @@ type Progress interface {
 	FailStep()
 }
 type Service struct {
-	Dir, PassphraseFile, ConfigDir, SecretsDir, MetadataDir string
-	DatabaseURL                                             string
-	Versions                                                func() map[string]string
-	Docker                                                  Docker
-	HealthWaiter                                            func(context.Context, string) error
-	Dump                                                    func(context.Context, string, string) error
-	RestoreDB                                               func(context.Context, string, string) error
-	HealthTimeout, PollInterval                             time.Duration
+	Dir, PassphraseFile, ConfigDir, SecretsDir, CacheDir string
+	DatabaseURL                                          string
+	Versions                                             func() map[string]string
+	Docker                                               Docker
+	HealthWaiter                                         func(context.Context, string) error
+	Dump                                                 func(context.Context, string, string) error
+	RestoreDB                                            func(context.Context, string, string) error
+	HealthTimeout, PollInterval                          time.Duration
 }
 type BackupRequest struct {
 	DatabaseURL string   `json:"databaseUrl"`
@@ -83,7 +83,7 @@ func (s *Service) Create(ctx context.Context, req BackupRequest, passphrase stri
 	for i := 1; fileExists(filepath.Join(s.Dir, name)); i++ {
 		name = fmt.Sprintf("flixer-%s-%dZ.flxbak", strings.TrimSuffix(timestamp, "Z"), i)
 	}
-	sources := map[string]string{"config": s.ConfigDir, "secrets": s.SecretsDir, "metadata": s.MetadataDir}
+	sources := map[string]string{"config": s.ConfigDir, "secrets": s.SecretsDir, "cache": s.CacheDir}
 	var dumpFile string
 	if req.DatabaseURL == "" {
 		req.DatabaseURL = s.DatabaseURL
@@ -176,7 +176,7 @@ func (s *Service) Restore(ctx context.Context, p *PreparedRestore, req RestoreRe
 	defer p.Close()
 	// The safety copy is mandatory and is created before stopping any services.
 	progress.Step("safety-backup", "Creating a safety backup of the current state")
-	components := []string{"database", "config", "secrets", "metadata"}
+	components := []string{"database", "config", "secrets", "cache"}
 	safetyName, retErr = s.Create(ctx, BackupRequest{DatabaseURL: req.DatabaseURL, Components: components}, safetyPassphrase, progress)
 	if retErr != nil {
 		return "", fmt.Errorf("safety backup failed; restore aborted: %w", retErr)
@@ -228,10 +228,10 @@ func (s *Service) Restore(ctx context.Context, p *PreparedRestore, req RestoreRe
 			return safetyName, fmt.Errorf("safety backup %s created; database restore failed: %w", safetyName, e)
 		}
 	}
-	for _, component := range []string{"config", "secrets", "metadata"} {
+	for _, component := range []string{"config", "secrets", "cache"} {
 		if contains(p.Components, component) {
 			progress.Step("restore-"+component, "Restoring "+component)
-			target := map[string]string{"config": s.ConfigDir, "secrets": s.SecretsDir, "metadata": s.MetadataDir}[component]
+			target := map[string]string{"config": s.ConfigDir, "secrets": s.SecretsDir, "cache": s.CacheDir}[component]
 			if e := replaceContents(filepath.Join(p.stage, component), target); e != nil {
 				progress.FailStep()
 				return safetyName, fmt.Errorf("safety backup %s created; restoring %s failed: %w", safetyName, component, e)

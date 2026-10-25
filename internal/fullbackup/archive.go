@@ -55,14 +55,14 @@ type Manifest struct {
 	Components    []string          `json:"components"`
 	Versions      map[string]string `json:"versions"`
 	DatabaseBytes int64             `json:"databaseBytes"`
-	MetadataFiles int               `json:"metadataFiles"`
+	CacheFiles    int               `json:"cacheFiles"`
 }
 
-var knownComponents = map[string]bool{"database": true, "config": true, "secrets": true, "metadata": true}
+var knownComponents = map[string]bool{"database": true, "config": true, "secrets": true, "cache": true}
 
 func normalizeComponents(in []string) ([]string, error) {
 	if len(in) == 0 {
-		in = []string{"database", "config", "secrets", "metadata"}
+		in = []string{"database", "config", "secrets", "cache"}
 	}
 	seen := map[string]bool{}
 	for _, c := range in {
@@ -75,7 +75,7 @@ func normalizeComponents(in []string) ([]string, error) {
 		seen[c] = true
 	}
 	out := make([]string, 0, len(seen))
-	for _, c := range []string{"database", "config", "secrets", "metadata"} {
+	for _, c := range []string{"database", "config", "secrets", "cache"} {
 		if seen[c] {
 			out = append(out, c)
 		}
@@ -228,8 +228,8 @@ func WriteArchive(destination string, components []string, sources map[string]st
 					manifest.DatabaseBytes = fi.Size()
 				}
 			}
-			if c == "metadata" {
-				manifest.MetadataFiles = countFiles(sources[c])
+			if c == "cache" {
+				manifest.CacheFiles = countFiles(sources[c])
 			}
 		}
 		mb, _ := json.Marshal(manifest)

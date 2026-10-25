@@ -70,7 +70,7 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 
-	backupService := &fullbackup.Service{Dir: cfg.BackupDir, PassphraseFile: cfg.PassphraseFile, ConfigDir: cfg.ConfigDir, SecretsDir: cfg.SecretsDir, MetadataDir: cfg.MetadataDir, DatabaseURL: cfg.DatabaseURL, Docker: opts.Docker, HealthWaiter: manager.WaitHealthy, HealthTimeout: cfg.HealthTimeout, PollInterval: cfg.PollInterval, Versions: func() map[string]string { return manager.Snapshot().Versions }}
+	backupService := &fullbackup.Service{Dir: cfg.BackupDir, PassphraseFile: cfg.PassphraseFile, ConfigDir: cfg.ConfigDir, SecretsDir: cfg.SecretsDir, CacheDir: cfg.CacheDir, DatabaseURL: cfg.DatabaseURL, Docker: opts.Docker, HealthWaiter: manager.WaitHealthy, HealthTimeout: cfg.HealthTimeout, PollInterval: cfg.PollInterval, Versions: func() map[string]string { return manager.Snapshot().Versions }}
 
 	srv := &http.Server{
 		Addr:              cfg.Addr,
