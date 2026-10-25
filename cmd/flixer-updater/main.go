@@ -15,6 +15,7 @@ import (
 	"github.com/flixermedia/flixer-updater/internal/backup"
 	"github.com/flixermedia/flixer-updater/internal/config"
 	"github.com/flixermedia/flixer-updater/internal/docker"
+	"github.com/flixermedia/flixer-updater/internal/fullbackup"
 	"github.com/flixermedia/flixer-updater/internal/server"
 	"github.com/flixermedia/flixer-updater/internal/updater"
 )
@@ -69,12 +70,12 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 
+	backupService := &fullbackup.Service{Dir: cfg.BackupDir, PassphraseFile: cfg.PassphraseFile, ConfigDir: cfg.ConfigDir, SecretsDir: cfg.SecretsDir, MetadataDir: cfg.MetadataDir, DatabaseURL: cfg.DatabaseURL, Docker: opts.Docker, HealthWaiter: manager.WaitHealthy, HealthTimeout: cfg.HealthTimeout, PollInterval: cfg.PollInterval, Versions: func() map[string]string { return manager.Snapshot().Versions }}
+
 	srv := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           server.New(auth.Resolver(cfg.Token, cfg.SecretFile), cfg.Version, manager),
+		Handler:           server.New(auth.Resolver(cfg.Token, cfg.SecretFile), cfg.Version, manager, backupService),
 		ReadHeaderTimeout: 10 * time.Second,
-		ReadTimeout:       30 * time.Second,
-		WriteTimeout:      30 * time.Second,
 	}
 	go func() {
 		<-ctx.Done()

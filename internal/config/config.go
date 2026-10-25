@@ -4,6 +4,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -22,10 +23,15 @@ type Config struct {
 	ProjectDir  string
 	ProjectName string
 
-	StateDir    string
-	BackupDir   string
-	DatabaseURL string
-	BackupsKept int
+	StateDir  string
+	BackupDir string
+	// PassphraseFile is written by Flixer; absent or empty means backups are not encrypted.
+	PassphraseFile string
+	ConfigDir      string
+	SecretsDir     string
+	MetadataDir    string
+	DatabaseURL    string
+	BackupsKept    int
 
 	HealthTimeout time.Duration
 	PollInterval  time.Duration
@@ -45,11 +51,18 @@ func FromEnv(getenv func(string) string, version string) (Config, error) {
 		ProjectName:     strings.TrimSpace(getenv("COMPOSE_PROJECT_NAME")),
 		StateDir:        valueOr(getenv("STATE_DIR"), "/state"),
 		BackupDir:       valueOr(getenv("BACKUP_DIR"), "/backups"),
+		PassphraseFile:  strings.TrimSpace(getenv("BACKUP_PASSPHRASE_FILE")),
+		ConfigDir:       valueOr(getenv("CONFIG_DIR"), "/var/lib/flixer/config"),
+		SecretsDir:      valueOr(getenv("SECRETS_DIR"), "/run/flixer-secrets"),
+		MetadataDir:     valueOr(getenv("METADATA_DIR"), "/data/metadata"),
 		DatabaseURL:     strings.TrimSpace(getenv("DATABASE_URL")),
 		BackupsKept:     5,
 		HealthTimeout:   3 * time.Minute,
 		PollInterval:    3 * time.Second,
 		RestartServices: splitList(valueOr(getenv("RESTART_SERVICES"), "proxy")),
+	}
+	if cfg.PassphraseFile == "" {
+		cfg.PassphraseFile = filepath.Join(cfg.BackupDir, ".passphrase")
 	}
 	if cfg.Token == "" && cfg.SecretFile == "" {
 		return Config{}, errors.New("set STREAM_TOKEN_SECRET_FILE (the shared secret file) or UPDATER_TOKEN")

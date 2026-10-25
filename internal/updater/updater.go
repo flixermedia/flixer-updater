@@ -72,6 +72,8 @@ type Request struct {
 type Run struct {
 	ID         string            `json:"id"`
 	Status     string            `json:"status"`
+	Kind       string            `json:"kind,omitempty"`
+	Encrypted  bool              `json:"encrypted"`
 	Step       string            `json:"step"`
 	StartedAt  time.Time         `json:"startedAt"`
 	FinishedAt *time.Time        `json:"finishedAt"`
@@ -80,6 +82,16 @@ type Run struct {
 	Backup     string            `json:"backup"`
 	Error      string            `json:"error"`
 	Log        []string          `json:"log"`
+	Steps      []RunStep         `json:"steps,omitempty"`
+}
+
+// RunStep records a named phase of an operation.
+type RunStep struct {
+	Name       string     `json:"name"`
+	Message    string     `json:"message"`
+	Status     string     `json:"status"`
+	StartedAt  time.Time  `json:"startedAt"`
+	FinishedAt *time.Time `json:"finishedAt,omitempty"`
 }
 
 type state struct {
@@ -158,6 +170,7 @@ func (u *Updater) Snapshot() Snapshot {
 	if u.state.Run != nil {
 		run := *u.state.Run
 		run.Log = append([]string(nil), run.Log...)
+		run.Steps = append([]RunStep(nil), run.Steps...)
 		snapshot.Run = &run
 	}
 	return snapshot
@@ -215,7 +228,7 @@ func (u *Updater) Start(req Request) (Run, error) {
 	for _, component := range order {
 		targets[component] = req.Targets[component]
 	}
-	run := &Run{ID: newID(), Status: StatusRunning, Step: "starting", StartedAt: time.Now().UTC(), Targets: targets, Previous: previous}
+	run := &Run{ID: newID(), Status: StatusRunning, Kind: "update", Step: "starting", StartedAt: time.Now().UTC(), Targets: targets, Previous: previous}
 	u.state.Run = run
 	_ = u.saveLocked()
 	snapshot := *run
@@ -281,6 +294,53 @@ func (u *Updater) execute(order []string, targets, previous map[string]string, d
 	u.finish(StatusSucceeded, "")
 }
 
+// Progress reports steps and logs for a non-update operation.
+type Progress struct{ updater *Updater }
+
+func (p Progress) Step(name, message string)       { p.updater.step(name, message) }
+func (p Progress) Logf(format string, args ...any) { p.updater.logf(format, args...) }
+func (p Progress) SetBackup(name string)           { p.updater.mutate(func(run *Run) { run.Backup = name }) }
+func (p Progress) SetEncrypted(encrypted bool) {
+	p.updater.mutate(func(run *Run) { run.Encrypted = encrypted })
+}
+func (p Progress) FailStep() {
+	p.updater.mutate(func(run *Run) {
+		if n := len(run.Steps); n > 0 && run.Steps[n-1].Status == "running" {
+			now := time.Now().UTC()
+			run.Steps[n-1].Status = "failed"
+			run.Steps[n-1].FinishedAt = &now
+		}
+	})
+}
+
+// StartOperation runs a backup or restore under the same single-operation lock as updates.
+func (u *Updater) StartOperation(kind, backupName string, encrypted bool, operation func(Progress) error) (Run, error) {
+	if kind != "backup" && kind != "restore" {
+		return Run{}, fmt.Errorf("%w: unsupported operation", ErrInvalid)
+	}
+	u.mu.Lock()
+	if u.state.Run != nil && u.state.Run.Status == StatusRunning {
+		u.mu.Unlock()
+		return Run{}, ErrBusy
+	}
+	run := &Run{ID: newID(), Status: StatusRunning, Kind: kind, Encrypted: encrypted, Step: "starting", StartedAt: time.Now().UTC(), Backup: backupName}
+	u.state.Run = run
+	_ = u.saveLocked()
+	snapshot := *run
+	u.mu.Unlock()
+	u.wg.Add(1)
+	go func() {
+		defer u.wg.Done()
+		err := operation(Progress{updater: u})
+		if err != nil {
+			u.finish(StatusFailed, err.Error())
+		} else {
+			u.finish(StatusSucceeded, "")
+		}
+	}()
+	return snapshot, nil
+}
+
 // rollback pins the previous releases again and recreates every component that was already touched.
 func (u *Updater) rollback(ctx context.Context, touched []string, targets, previous, pinnedBefore map[string]string, reason string) {
 	u.logf("%s", reason)
@@ -333,6 +393,11 @@ func (u *Updater) restartProxies(ctx context.Context) {
 	}
 }
 
+// WaitHealthy waits for a compose service using the updater's standard health policy.
+func (u *Updater) WaitHealthy(ctx context.Context, service string) error {
+	return u.waitHealthy(ctx, service)
+}
+
 func (u *Updater) waitHealthy(ctx context.Context, service string) error {
 	deadline := time.Now().Add(u.opts.HealthTimeout)
 	stable := 0
@@ -359,7 +424,15 @@ func (u *Updater) waitHealthy(ctx context.Context, service string) error {
 }
 
 func (u *Updater) step(step, message string) {
-	u.mutate(func(run *Run) { run.Step = step })
+	u.mutate(func(run *Run) {
+		now := time.Now().UTC()
+		if n := len(run.Steps); n > 0 && run.Steps[n-1].Status == "running" {
+			run.Steps[n-1].Status = "succeeded"
+			run.Steps[n-1].FinishedAt = &now
+		}
+		run.Step = step
+		run.Steps = append(run.Steps, RunStep{Name: step, Message: message, Status: "running", StartedAt: now})
+	})
 	u.logf("%s", message)
 }
 
@@ -378,9 +451,16 @@ func (u *Updater) finish(status, message string) {
 	u.mutate(func(run *Run) {
 		now := time.Now().UTC()
 		run.Status, run.FinishedAt, run.Error, run.Step = status, &now, message, "done"
+		if n := len(run.Steps); n > 0 && run.Steps[n-1].Status == "running" {
+			run.Steps[n-1].Status = "succeeded"
+			if message != "" {
+				run.Steps[n-1].Status = "failed"
+			}
+			run.Steps[n-1].FinishedAt = &now
+		}
 	})
 	if message != "" {
-		u.log.Error("update finished", "status", status, "error", message)
+		u.log.Error("operation finished", "status", status, "error", message)
 	}
 }
 

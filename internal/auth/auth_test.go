@@ -26,6 +26,10 @@ func TestResolver(t *testing.T) {
 	if resolve() != Derive("shared-secret") {
 		t.Fatal("token not derived once the file exists")
 	}
+	_ = os.WriteFile(file, []byte("restored-secret"), 0o600)
+	if resolve() != Derive("restored-secret") {
+		t.Fatal("resolver did not reload a restored secret")
+	}
 	if Resolver("override-token-123456", file)() != "override-token-123456" {
 		t.Fatal("explicit token must win")
 	}

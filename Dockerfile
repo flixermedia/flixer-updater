@@ -12,8 +12,9 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -trimpat
 
 FROM alpine:3.22 AS runtime
 ARG APP_VERSION=dev
-# The docker CLI and compose plugin drive the host daemon through the mounted socket; pg_dump takes the backups.
-RUN apk add --no-cache ca-certificates docker-cli docker-cli-compose postgresql16-client wget \
+# The Docker CLI/Compose plugin manage the stack; PostgreSQL client provides pg_dump and pg_restore.
+RUN apk add --no-cache ca-certificates docker-cli docker-cli-compose postgresql17-client wget \
+    && command -v pg_dump >/dev/null && command -v pg_restore >/dev/null \
     && mkdir -p /state /backups
 
 COPY --from=build /out/flixer-updater /usr/local/bin/flixer-updater
