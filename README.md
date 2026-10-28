@@ -1,113 +1,123 @@
-# flixer-updater
+<div align="center">
 
-A small sidecar that updates a Flixer Docker Compose stack on request from the Flixer admin dashboard.
+<img src="https://raw.githubusercontent.com/flixermedia/flixer/main/resources/logo/flixer-logo.png" alt="Flixer logo" width="112" />
 
-For each update it:
+# Flixer Updater
 
-1. takes a `pg_dump` backup (a failed backup aborts the update with nothing changed),
-2. pins the requested release of each component in `/state/versions.env`,
-3. pulls the new images,
-4. recreates the services one at a time (`streamer`, `indexer`, `web`, then `api`) and waits for each to be healthy,
-5. rolls back to the previous releases if a service fails to start or become healthy,
-6. restarts the reverse proxy so it picks up the new containers.
+**Safer updates for your self-hosted stack.**
 
-Progress, the backup name and any error are reported through `GET /v1/status`.
+[![Stars](https://img.shields.io/github/stars/flixermedia/flixer-updater?style=flat-square)](https://github.com/flixermedia/flixer-updater/stargazers) [![Issues](https://img.shields.io/github/issues/flixermedia/flixer-updater?style=flat-square)](https://github.com/flixermedia/flixer-updater/issues)
 
-## API
+[Flixer](https://github.com/flixermedia/flixer) · [Documentation](https://github.com/flixermedia/flixer-docs) · [Report an issue](https://github.com/flixermedia/flixer-updater/issues)
 
-All `/v1` routes need `Authorization: Bearer <token>`. The token is derived automatically from the stream token secret shared on the `flixer-secrets` volume (`hex(HMAC-SHA256(secret, "flixer-updater-token"))`), so nothing has to be configured.
+</div>
 
-| Route            | Description                                                                 |
-| ---------------- | --------------------------------------------------------------------------- |
-| `GET /health`    | Unauthenticated liveness check; returns the updater version.                |
-| `GET /v1/status` | Pinned versions and the latest run (`status`, `step`, `log`, `error`, ...). |
-| `POST /v1/update` | `{"targets":{"web":"0.9.0"},"current":{"web":"0.8.0"}}`. `202` when started, `409` if an update is running, `400` if invalid. |
+---
 
-Components: `flixer` (service `api`), `web`, `streamer`, `indexer`. Versions must be `X.Y.Z` releases.
-`current` is used as the rollback target the first time a component is updated.
+> [!WARNING]
+> **Under active development.** Flixer components and integration contracts may change. Check current source and release notes before upgrading production installations.
 
-## Configuration
+> [!NOTE]
+> **Role in Flixer:** The Go sidecar that orchestrates Docker Compose updates and restores. For an end-to-end deployment, start with the [Flixer backend repository](https://github.com/flixermedia/flixer).
 
-| Variable               | Default      | Notes                                                              |
-| ---------------------- | ------------ | ------------------------------------------------------------------ |
-| `STREAM_TOKEN_SECRET_FILE` | required unless `UPDATER_TOKEN` is set | The shared secret file; read per request so it may appear after start. |
-| `UPDATER_TOKEN`        | unset        | Optional explicit override (16+ characters); must then also be set on the Flixer API. |
-| `PORT`                 | `8093`       |                                                                    |
-| `DATABASE_URL`         | unset        | Optional fallback. Normally Flixer sends its own database URL with each update request. |
-| `DATA_PATH`            | `/data`      | Root for persistent config, cache and backup data. |
-| `BACKUP_PASSPHRASE_FILE` | `<DATA_PATH>/backups/.passphrase` | Written by Flixer. Contents are the passphrase (one trailing newline stripped); missing or empty means plain archives. Read fresh per operation. |
-| `SECRETS_DIR`          | `/run/flixer-secrets` | Shared Flixer secret files; mounted read-write for restore. |
-| `STATE_DIR`            | `/state`     | `state.json` and `versions.env`. |
-| `HEALTH_TIMEOUT`       | `3m`         | Per service, minimum `10s`.                                        |
-| `RESTART_SERVICES`     | `proxy`      | Comma-separated services restarted after an update.                |
-| `COMPOSE_PROJECT_NAME` / `COMPOSE_PROJECT_DIR` / `COMPOSE_FILE` | auto | Detected from the updater's own container labels. |
+## ✨ Features
 
-## Compose setup
+- **Pre-update safety:** Take a PostgreSQL backup before changing versions.
+- **Controlled rollout:** Pull and recreate streamer, indexer, web, then API with health checks.
+- **Rollback:** Restore prior known release pins when a component fails.
+- **Operational visibility:** Expose update status, progress and errors through an authenticated API.
+- **Archive restore:** Restore Flixer `.flxbak` backups with validation and optional decryption.
 
-The project folder must be mounted at the **same absolute path** inside the container as on the host, and the compose
-images must read their tag from the version variables:
+## 🏗️ Architecture
 
-```yaml
-services:
-  api:
-    image: ghcr.io/flixermedia/flixer:${FLIXER_VERSION:-latest}
-  web:
-    image: ghcr.io/flixermedia/flixer-web:${WEB_VERSION:-latest}
-  streamer:
-    image: ghcr.io/flixermedia/flixer-streamer:${STREAMER_VERSION:-latest}
-  indexer:
-    image: ghcr.io/flixermedia/flixer-indexer:${INDEXER_VERSION:-latest}
+Flixer separates application logic from its web UI, media indexing, media delivery, update management, plugins and documentation. **Flixer Updater** owns the following responsibility: the Go sidecar that orchestrates Docker Compose updates and restores.
 
-  updater:
-    image: ghcr.io/flixermedia/flixer-updater:latest
-    restart: unless-stopped
-    expose: ["8093"]
-    environment:
-      STREAM_TOKEN_SECRET_FILE: /run/flixer-secrets/stream-token-secret
-      DATA_PATH: /data
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - flixer-secrets:/run/flixer-secrets
-      - ${DATA_PATH:?Set DATA_PATH}/config:/data/config
-      - ${DATA_PATH:?Set DATA_PATH}/cache:/data/cache
-      - ${DATA_PATH:?Set DATA_PATH}/backups:/data/backups
-      - ${PROJECT_DIR:-.}:${PROJECT_DIR:-.}
-      - updater-state:/state
+For the full platform, the API coordinates services; the browser interacts with the backend and the streamer receives authorised playback requests. Components should be operated as part of the supported Flixer stack unless you are developing or testing them directly.
+
+## 🚀 Getting started
+
+### Recommended: use the Flixer stack
+The updater is an **internal** Compose sidecar, not a public web application. Deploy it with Flixer's official stack so its secret volume, state volume, project mounts and Docker configuration agree.
+
+### Go development
+
+```bash
+git clone https://github.com/flixermedia/flixer-updater.git
+cd flixer-updater
+go vet ./...
+go test -race ./...
 ```
 
-Do not publish the port. Pinned versions live in `/state/versions.env`; a manual `docker compose up` without that file
-falls back to `latest`, so pass `--env-file` for it if you mix manual and dashboard updates.
+Do not expose port `8093` publicly. The updater needs Docker socket access (effectively host-root privileges), protected secrets and persistent state. Avoid configuring it outside a trusted deployment without reviewing the Compose mounts.
 
-## Limitations
+## 🏗️ Update sequence
 
-- The updater cannot update itself; pull a new `flixer-updater` image manually.
-- The Docker socket is root-equivalent. Keep the port internal and the token secret.
-- A component can only be rolled back if its previous version was a known release (not `dev` or `latest`).
-
-## Development
-
-```sh
-go vet ./... && go test -race ./...
+```mermaid
+flowchart TD
+    A[Request from Flixer admin] --> B[PostgreSQL safety backup]
+    B -->|Success| C[Pin release versions]
+    B -->|Failure| X[Abort without updating]
+    C --> D[Pull images]
+    D --> E[Recreate services and check health]
+    E -->|Healthy| F[Restart reverse proxy]
+    E -->|Failure| G[Attempt rollback]
 ```
 
-## Restore (Flixer-written `.flxbak` archives)
+Services update in the order **streamer → indexer → web → API**. Pinned releases are stored in `/state/versions.env`.
 
-Flixer creates, lists, schedules, uploads, downloads, deletes and encrypts backups itself under `DATA_PATH/backups`. The updater only restores them, because restore needs Docker control of the services. Route: `POST /v1/backups/{name}/restore` with body `{"databaseUrl":"...","passphrase":"optional","components":["database","config","secrets","cache"]}`. `{name}` must match `^flixer-[0-9TZ-]+\.flxbak$` and exist in `DATA_PATH/backups`; otherwise `404`. `components` is optional and only restores components that are also in the archive.
+## ⚙️ Configuration
 
-Passphrase: the request `passphrase` if non-empty, otherwise the contents of `BACKUP_PASSPHRASE_FILE`. Errors are JSON `{"error":"...","code":"..."}`: `400 bad_passphrase`, `400 corrupt`, `409 busy`. The archive is validated and decrypted before any service is touched.
+| Variable | Purpose |
+| --- | --- |
+| `PORT` | Internal HTTP listener; default `8093`. |
+| `STREAM_TOKEN_SECRET_FILE` | Shared secret used to derive API bearer token. |
+| `UPDATER_TOKEN` | Optional explicit token override. |
+| `DATA_PATH` | Persistent data; default `/data`. |
+| `STATE_DIR` | Version pins and state; default `/state`. |
+| `HEALTH_TIMEOUT` | Per-component health timeout; default `3m`. |
+| `BACKUP_PASSPHRASE_FILE` | Optional archive encryption passphrase. |
 
-Flow (steps in the run): `safety-backup` of the current state (`flixer-<ts>.flxbak`, encrypted only if the passphrase file has content; written under a non-matching temp name and renamed; nothing else in `DATA_PATH/backups` is touched or pruned; if it fails the restore aborts) -> `stop-services` (`api`, `indexer`, `streamer`; postgres/redis keep running) -> `restore-database` (`pg_restore --clean --if-exists --no-owner --single-transaction`) -> `restore-config` / `restore-secrets` / `restore-cache` (target directory contents are fully replaced, so stale `-wal`/`-shm` files are removed; modes limited to 0600) -> `start-services` and health waits. After a failure past the stop, services are still started again and the error names the safety backup.
+## 🔌 HTTP API
 
-The run JSON (`/v1/status`, and the `202` response) has `kind` (`update` | `restore`), `encrypted` (the archive's flag), `backup` (safety backup name), `step` and `steps: [{name,message,status,startedAt,finishedAt}]`. Update runs keep their previous shape plus `kind:"update"`. One operation runs at a time, shared with updates.
+| Route | Function |
+| --- | --- |
+| `GET /health` | Public liveness within private network. |
+| `GET /v1/status` | Current pins and operation status. |
+| `POST /v1/update` | Start a pinned component update. |
+| `POST /v1/backups/{name}/restore` | Validate and restore a Flixer archive. |
 
-### Archive format
+All `/v1` routes require bearer authentication. Restore validates archives and creates a safety backup before stopping affected services. The updater **does not update itself**; that image is managed separately. Rollback requires a known previous release, not an unversioned `latest` or `dev` image.
 
-`FLXBAK1\n` (magic), uint32 big-endian header length, JSON header (unencrypted), then the body. Header: `{"createdAt":RFC3339,"components":[...],"encrypted":bool,"versions":{...},"kdf":{"name":"pbkdf2-sha256","iterations":600000,"salt":b64(16 bytes),"noncePrefix":b64(4 bytes),"check":b64(optional)}}`. `kdf` is only needed when encrypted. The body is a tar.gz with entries `manifest.json` (`{"version":1,"createdAt","components","versions",...}`; only `version` 1 and the component set are checked), `database.dump` (`pg_dump --format=custom --no-owner`), `secrets/<file>`, `config/<file>`, `cache/<relative path>`. Directory entries (with or without a trailing slash) and PAX global headers are accepted; absolute paths, `..`, symlinks and hardlinks are rejected.
+## 🔐 Operational security
 
-Encrypted body: key = PBKDF2-HMAC-SHA256(passphrase, salt, 600000, 32 bytes); the plaintext tar.gz is split into 64 KiB chunks, each written as `[flag byte: 1 for the last chunk else 0][uint32 BE ciphertext length][AES-256-GCM ciphertext+tag]`, nonce = `noncePrefix` (4 bytes) + 8-byte big-endian chunk counter from 0, AAD = the exact header JSON bytes. A missing final-flag chunk means truncation (`corrupt`). `check` (optional) = b64(HMAC-SHA256(key, "flixer-backup-passphrase-check")) gives a fast wrong-passphrase answer; without it, failure of the first chunk is reported as `bad_passphrase`.
+Mounting `/var/run/docker.sock` and read/write configuration/secrets grants powerful host control. Keep the API internal, avoid publishing the port and restrict stack administration.
 
-The config component is a self-contained SQLite snapshot plus key files; restore deletes everything else in `DATA_PATH/config`.
+## 🧩 Flixer ecosystem
 
-Env: `DATA_PATH`, `BACKUP_PASSPHRASE_FILE`, `SECRETS_DIR` (`/run/flixer-secrets`).
+| Repository | Purpose |
+| --- | --- |
+| [Flixer](https://github.com/flixermedia/flixer) | The self-hosted backend API, authentication, libraries, and administration service. |
+| [Flixer Web](https://github.com/flixermedia/flixer-web) | The Vue 3 application that powers browsing, sign-in, discovery, and playback interfaces. |
+| [Flixer Streamer](https://github.com/flixermedia/flixer-streamer) | The Go service responsible for authorised media delivery and FFmpeg processing. |
+| [Flixer Indexer](https://github.com/flixermedia/flixer-indexer) | The Go worker and API service for discovering, identifying, probing, and enriching media. |
+| [Flixer Updater](https://github.com/flixermedia/flixer-updater) | The Go sidecar that orchestrates Docker Compose updates and restores. |
+| [Flixer Plugins](https://github.com/flixermedia/flixer-plugins) | The official versioned catalogue of Flixer plugins and plugin schemas. |
+| [Flixer Docs](https://github.com/flixermedia/flixer-docs) | The Docusaurus source for Flixer platform documentation. |
 
-**Security:** the Docker socket and the read/write secrets/config/cache mounts are root-equivalent. Keep the API internal and the bearer token protected. The passphrase is read from the file per operation, held only in memory, and never logged, archived or returned in run JSON. Restoring `secrets` changes the derived updater token; the token is re-read per request, so this takes effect immediately.
+## 🤝 Contributing
+
+Contributions, bug reports and documentation improvements are welcome. Open an [issue](https://github.com/flixermedia/flixer-updater/issues) with reproduction steps or a focused proposal, then submit a pull request against the repository. Keep configuration, examples and documentation aligned with implemented code. For backend contributions, also see the [main contribution guidelines](https://github.com/flixermedia/flixer/blob/main/CONTRIBUTING.md).
+
+## 📄 Licence
+
+Check this repository's [`LICENSE`](LICENSE) file, if present, for the authoritative licensing terms. The [main Flixer backend](https://github.com/flixermedia/flixer/blob/main/LICENSE) uses MIT; licensing for separate components should be verified individually before redistribution.
+
+---
+
+<div align="center">
+
+**Your media. Your server. Your rules.**
+
+Made for the [Flixer](https://github.com/flixermedia) ecosystem.
+
+</div>
