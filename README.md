@@ -65,12 +65,34 @@ flowchart TD
 
 Services update in the order **streamer → indexer → web → API**. Pinned releases are stored in `/state/versions.env`.
 
+The updater writes structured JSON diagnostics to stdout. Operation lifecycle
+and progress records include `operation_id`, `operation_kind` and `task_id`
+for correlation. The existing persisted operation status, steps and recent
+messages remain available for recovery and the admin interface. The
+experimental Flixer Logger exporter can enroll with the shared application
+secret file when `FLIXER_URL` is HTTPS or literal loopback HTTP, or
+`FLIXER_LOGGER_CONTROL_SOCKET` selects Flixer's protected local Unix socket,
+and Flixer has a configured logger. Compose configures the socket but does not
+yet provision or pair a logger. Export is bounded and asynchronous; events
+may be dropped on overload, outages, configuration changes or shutdown.
+Configuration is checked every five seconds, so events may still reach the
+previous deployment before the next check. The shared secret is not an
+individual service identity. Never put secrets in log messages: redaction is
+best effort.
+
+The checked-in `third_party/flixer-logger` snapshot supports independent
+builds before the logger module is published. Refresh it from the logger
+repository with `bash scripts/vendor-go-sdk.sh /path/to/flixer-updater`.
+
 ## ⚙️ Configuration
 
 | Variable | Purpose |
 | --- | --- |
 | `PORT` | Internal HTTP listener; default `8093`. |
 | `STREAM_TOKEN_SECRET_FILE` | Shared secret used to derive API bearer token. |
+| `APP_SECRET_FILE` | Shared application secret file, used when `STREAM_TOKEN_SECRET_FILE` is unset. |
+| `FLIXER_URL` | Flixer API origin, default `http://api:8081`; network logger enrollment requires HTTPS or literal loopback HTTP. |
+| `FLIXER_LOGGER_CONTROL_SOCKET` | Optional protected local socket for signed logger enrollment; takes precedence over network enrollment. |
 | `UPDATER_TOKEN` | Optional explicit token override. |
 | `DATA_PATH` | Persistent data; default `/data`. |
 | `STATE_DIR` | Version pins and state; default `/state`. |

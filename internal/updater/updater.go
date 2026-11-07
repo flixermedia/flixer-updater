@@ -141,6 +141,7 @@ func New(opts Options) (*Updater, error) {
 	if run := u.state.Run; run != nil && run.Status == StatusRunning {
 		now := time.Now().UTC()
 		run.Status, run.FinishedAt, run.Error = StatusFailed, &now, "The updater stopped while this update was running."
+		u.log.Warn("operation interrupted by updater restart", "task_id", run.ID, "operation_id", run.ID, "operation_kind", run.Kind)
 	}
 	if err := u.writeVersionsFile(u.state.Versions); err != nil {
 		return nil, err
@@ -234,6 +235,7 @@ func (u *Updater) Start(req Request) (Run, error) {
 	snapshot := *run
 	u.mu.Unlock()
 
+	u.log.Info("operation started", "task_id", run.ID, "operation_id", run.ID, "operation_kind", run.Kind)
 	u.wg.Add(1)
 	go func() {
 		defer u.wg.Done()
@@ -328,6 +330,7 @@ func (u *Updater) StartOperation(kind, backupName string, encrypted bool, operat
 	_ = u.saveLocked()
 	snapshot := *run
 	u.mu.Unlock()
+	u.log.Info("operation started", "task_id", run.ID, "operation_id", run.ID, "operation_kind", run.Kind)
 	u.wg.Add(1)
 	go func() {
 		defer u.wg.Done()
@@ -438,17 +441,21 @@ func (u *Updater) step(step, message string) {
 
 func (u *Updater) logf(format string, args ...any) {
 	line := fmt.Sprintf(format, args...)
-	u.log.Info(line)
+	var id, kind string
 	u.mutate(func(run *Run) {
+		id, kind = run.ID, run.Kind
 		run.Log = append(run.Log, time.Now().UTC().Format("15:04:05")+" "+line)
 		if len(run.Log) > 100 {
 			run.Log = run.Log[len(run.Log)-100:]
 		}
 	})
+	u.log.Info(line, "task_id", id, "operation_id", id, "operation_kind", kind)
 }
 
 func (u *Updater) finish(status, message string) {
+	var id, kind string
 	u.mutate(func(run *Run) {
+		id, kind = run.ID, run.Kind
 		now := time.Now().UTC()
 		run.Status, run.FinishedAt, run.Error, run.Step = status, &now, message, "done"
 		if n := len(run.Steps); n > 0 && run.Steps[n-1].Status == "running" {
@@ -460,7 +467,9 @@ func (u *Updater) finish(status, message string) {
 		}
 	})
 	if message != "" {
-		u.log.Error("operation finished", "status", status, "error", message)
+		u.log.Error("operation finished", "task_id", id, "operation_id", id, "operation_kind", kind, "status", status, "error", message)
+	} else {
+		u.log.Info("operation finished", "task_id", id, "operation_id", id, "operation_kind", kind, "status", status)
 	}
 }
 

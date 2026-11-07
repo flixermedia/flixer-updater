@@ -16,6 +16,7 @@ type Config struct {
 	// Token is an explicit override; otherwise it is derived from the shared secret in SecretFile.
 	Token      string
 	SecretFile string
+	FlixerURL  string
 
 	// ComposeFile, ProjectDir and ProjectName identify the stack to update. They are detected from the updater's own
 	// container labels when left empty.
@@ -46,7 +47,8 @@ func FromEnv(getenv func(string) string, version string) (Config, error) {
 		Version:         version,
 		Addr:            ":" + valueOr(getenv("PORT"), "8093"),
 		Token:           strings.TrimSpace(getenv("UPDATER_TOKEN")),
-		SecretFile:      strings.TrimSpace(getenv("STREAM_TOKEN_SECRET_FILE")),
+		SecretFile:      valueOr(getenv("STREAM_TOKEN_SECRET_FILE"), strings.TrimSpace(getenv("APP_SECRET_FILE"))),
+		FlixerURL:       strings.TrimRight(valueOr(getenv("FLIXER_URL"), "http://api:8081"), "/"),
 		ComposeFile:     strings.TrimSpace(getenv("COMPOSE_FILE")),
 		ProjectDir:      strings.TrimSpace(getenv("COMPOSE_PROJECT_DIR")),
 		ProjectName:     strings.TrimSpace(getenv("COMPOSE_PROJECT_NAME")),

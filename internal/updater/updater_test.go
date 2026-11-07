@@ -1,8 +1,11 @@
 package updater
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"log/slog"
 	"os"
 	"strings"
 	"sync"
@@ -151,11 +154,51 @@ func TestBusy(t *testing.T) {
 func TestInterruptedRunIsMarkedFailed(t *testing.T) {
 	dir := t.TempDir()
 	_ = os.WriteFile(dir+"/state.json", []byte(`{"versions":{},"run":{"id":"1","status":"running"}}`), 0o644)
-	u, err := New(Options{StateDir: dir})
+	var output bytes.Buffer
+	u, err := New(Options{StateDir: dir, Logger: slog.New(slog.NewJSONHandler(&output, nil))})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if run := u.Snapshot().Run; run.Status != StatusFailed {
 		t.Fatalf("run %+v", run)
+	}
+	var record map[string]any
+	if err := json.Unmarshal(output.Bytes(), &record); err != nil || record["task_id"] != "1" || record["msg"] != "operation interrupted by updater restart" {
+		t.Fatalf("interrupted operation log: %s (%v)", output.String(), err)
+	}
+}
+
+func TestOperationLogsHaveCorrelationAndPreserveRunDiagnostics(t *testing.T) {
+	var output bytes.Buffer
+	u, err := New(Options{
+		StateDir: t.TempDir(), Logger: slog.New(slog.NewJSONHandler(&output, nil)),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := u.StartOperation("backup", "", false, func(progress Progress) error {
+		progress.Step("snapshot", "Saving backup")
+		progress.Logf("Backup completed")
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	u.Wait()
+	snapshot := u.Snapshot().Run
+	if snapshot.Status != StatusSucceeded || len(snapshot.Log) != 2 || len(snapshot.Steps) != 1 {
+		t.Fatalf("operation diagnostics changed: %+v", snapshot)
+	}
+	for _, line := range strings.Split(strings.TrimSpace(output.String()), "\n") {
+		var record map[string]any
+		if err := json.Unmarshal([]byte(line), &record); err != nil {
+			t.Fatal(err)
+		}
+		if record["task_id"] != run.ID || record["operation_id"] != run.ID || record["operation_kind"] != "backup" {
+			t.Fatalf("uncorrelated record: %v", record)
+		}
+	}
+	if !strings.Contains(output.String(), `"status":"succeeded"`) {
+		t.Fatalf("missing success lifecycle record: %s", output.String())
 	}
 }

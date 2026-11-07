@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -11,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/flixermedia/flixer-logger/pkg/exporter"
 	"github.com/flixermedia/flixer-updater/internal/auth"
 	"github.com/flixermedia/flixer-updater/internal/backup"
 	"github.com/flixermedia/flixer-updater/internal/config"
@@ -24,7 +27,7 @@ import (
 var version = "dev"
 
 func main() {
-	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil)).With("app", "flixer-updater")
 	if err := run(logger); err != nil {
 		logger.Error("flixer-updater stopped", "error", err)
 		os.Exit(1)
@@ -35,6 +38,40 @@ func run(logger *slog.Logger) error {
 	cfg, err := config.FromEnv(os.Getenv, version)
 	if err != nil {
 		return err
+	}
+
+	if cfg.SecretFile == "" {
+		logger.Warn("Flixer Logger export unavailable: shared application secret file is not configured")
+	} else {
+		secret := func() ([]byte, error) {
+			file, err := os.Open(cfg.SecretFile)
+			if err != nil {
+				return nil, err
+			}
+			defer file.Close()
+			info, err := file.Stat()
+			if err != nil || !info.Mode().IsRegular() {
+				return nil, errors.New("shared application secret is not a regular file")
+			}
+			value, err := io.ReadAll(io.LimitReader(file, 4097))
+			if err != nil || len(value) < 32 || len(value) > 4096 {
+				return nil, errors.New("shared application secret is unavailable")
+			}
+			return value, nil
+		}
+		handler, logging, logErr := exporter.StartServiceWithControlSocket(logger.Handler(), cfg.FlixerURL, os.Getenv("FLIXER_LOGGER_CONTROL_SOCKET"), "flixer-updater", secret, os.Stderr)
+		if logErr != nil {
+			logger.Warn("Flixer Logger export unavailable", "error", logErr)
+		} else {
+			logger = slog.New(handler)
+			defer func() {
+				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+				defer cancel()
+				if err := logging.Close(ctx); err != nil {
+					fmt.Fprintln(os.Stderr, "Flixer Logger export shutdown:", err)
+				}
+			}()
+		}
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
