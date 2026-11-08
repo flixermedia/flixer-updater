@@ -19,6 +19,7 @@ import (
 	"github.com/flixermedia/flixer-updater/internal/config"
 	"github.com/flixermedia/flixer-updater/internal/docker"
 	"github.com/flixermedia/flixer-updater/internal/fullbackup"
+	"github.com/flixermedia/flixer-updater/internal/monitoring"
 	"github.com/flixermedia/flixer-updater/internal/server"
 	"github.com/flixermedia/flixer-updater/internal/updater"
 )
@@ -27,11 +28,14 @@ import (
 var version = "dev"
 
 func main() {
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil)).With("app", "flixer-updater")
+	logger := slog.New(monitoring.WrapHandler(slog.NewJSONHandler(os.Stdout, nil))).With("app", "flixer-updater")
+	defer monitoring.Recover()
 	if err := run(logger); err != nil {
 		logger.Error("flixer-updater stopped", "error", err)
+		monitoring.Flush()
 		os.Exit(1)
 	}
+	monitoring.Flush()
 }
 
 func run(logger *slog.Logger) error {
@@ -76,8 +80,18 @@ func run(logger *slog.Logger) error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	monitoringDone := make(chan struct{})
+	go func() {
+		defer close(monitoringDone)
+		defer monitoring.Recover()
+		monitoring.Load(ctx, cfg.FlixerURL, os.Getenv("SENTRY_ENVIRONMENT"), "flixer-updater@"+cfg.Version, logger, &http.Client{Timeout: 5 * time.Second}, 5*time.Second)
+	}()
+	defer func() {
+		stop()
+		<-monitoringDone
+	}()
 
-	if cfg.ProjectName == "" || cfg.ProjectDir == "" || cfg.ComposeFile == "" {
+	if cfg.Mode == "compose" && (cfg.ProjectName == "" || cfg.ProjectDir == "" || cfg.ComposeFile == "") {
 		labels, err := docker.DetectProject(ctx, docker.ExecRunner, docker.Hostname())
 		if err != nil {
 			return errors.New("could not detect the compose project (is /var/run/docker.sock mounted?); set COMPOSE_PROJECT_NAME, COMPOSE_PROJECT_DIR and COMPOSE_FILE: " + err.Error())
@@ -86,8 +100,10 @@ func run(logger *slog.Logger) error {
 		cfg.ProjectDir = firstNonEmpty(cfg.ProjectDir, labels.WorkingDir)
 		cfg.ComposeFile = firstNonEmpty(cfg.ComposeFile, labels.ConfigFile)
 	}
-	if _, err := os.Stat(cfg.ComposeFile); err != nil {
-		return errors.New("the compose file " + cfg.ComposeFile + " is not visible in the container; mount the project folder at the same path it has on the host")
+	if cfg.Mode == "compose" {
+		if _, err := os.Stat(cfg.ComposeFile); err != nil {
+			return errors.New("the compose file " + cfg.ComposeFile + " is not visible in the container; mount the project folder at the same path it has on the host")
+		}
 	}
 
 	// The project's own .env is listed explicitly because passing --env-file turns off compose's default of reading it.
@@ -109,19 +125,24 @@ func run(logger *slog.Logger) error {
 
 	backupService := &fullbackup.Service{Dir: cfg.BackupDir, PassphraseFile: cfg.PassphraseFile, ConfigDir: cfg.ConfigDir, SecretsDir: cfg.SecretsDir, CacheDir: cfg.CacheDir, DatabaseURL: cfg.DatabaseURL, Docker: opts.Docker, HealthWaiter: manager.WaitHealthy, HealthTimeout: cfg.HealthTimeout, PollInterval: cfg.PollInterval, Versions: func() map[string]string { return manager.Snapshot().Versions }}
 
+	handler := server.New(auth.Resolver(cfg.Token, cfg.SecretFile), cfg.Version, manager, backupService)
+	if cfg.Mode == "development" {
+		handler = server.NewDevelopment(auth.Resolver(cfg.Token, cfg.SecretFile), cfg.Version, manager)
+	}
 	srv := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           server.New(auth.Resolver(cfg.Token, cfg.SecretFile), cfg.Version, manager, backupService),
+		Handler:           monitoring.Middleware(handler),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	go func() {
+		defer monitoring.Recover()
 		<-ctx.Done()
 		shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		_ = srv.Shutdown(shutdown)
 	}()
 
-	logger.Info("flixer-updater listening", "addr", cfg.Addr, "version", cfg.Version, "project", cfg.ProjectName, "composeFile", cfg.ComposeFile)
+	logger.Info("flixer-updater listening", "addr", cfg.Addr, "version", cfg.Version, "mode", cfg.Mode, "project", cfg.ProjectName, "composeFile", cfg.ComposeFile)
 	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}

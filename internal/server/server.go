@@ -18,6 +18,15 @@ import (
 
 // New returns the HTTP handler. Backup routes are enabled when a service is provided.
 func New(token func() string, version string, u *updater.Updater, backupServices ...*fullbackup.Service) http.Handler {
+	return newHandler(token, version, u, "compose", backupServices...)
+}
+
+// NewDevelopment provides monitoring and status without operating on a shared Docker daemon.
+func NewDevelopment(token func() string, version string, u *updater.Updater) http.Handler {
+	return newHandler(token, version, u, "development")
+}
+
+func newHandler(token func() string, version string, u *updater.Updater, mode string, backupServices ...*fullbackup.Service) http.Handler {
 	mux := http.NewServeMux()
 	var backups *fullbackup.Service
 	if len(backupServices) > 0 {
@@ -27,9 +36,13 @@ func New(token func() string, version string, u *updater.Updater, backupServices
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "version": version})
 	})
 	mux.HandleFunc("GET /v1/status", authed(token, func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, http.StatusOK, map[string]any{"version": version, "state": u.Snapshot()})
+		writeJSON(w, http.StatusOK, map[string]any{"version": version, "state": u.Snapshot(), "mode": mode})
 	}))
 	mux.HandleFunc("POST /v1/update", authed(token, func(w http.ResponseWriter, r *http.Request) {
+		if mode == "development" {
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "Native development checkouts cannot be updated by the Compose updater."})
+			return
+		}
 		var req updater.Request
 		if err := decodeJSON(w, r, &req); err != nil {
 			writeJSON(w, 400, map[string]string{"error": "The request body must be valid JSON."})

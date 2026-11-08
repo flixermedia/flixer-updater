@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"github.com/flixermedia/flixer-updater/internal/fullbackup"
 	"net/http"
 	"net/http/httptest"
@@ -50,6 +51,28 @@ func TestAuthRequired(t *testing.T) {
 	}
 	if rec := do(h, "GET", "/v1/status", "Bearer "+token, ""); rec.Code != 200 {
 		t.Fatalf("got %d", rec.Code)
+	}
+}
+
+func TestDevelopmentModeDisablesUpdateAndRestore(t *testing.T) {
+	u, err := updater.New(updater.Options{StateDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := NewDevelopment(func() string { return token }, "dev", u)
+	auth := "Bearer " + token
+	rec := do(h, "GET", "/v1/status", auth, "")
+	var status struct {
+		Mode string `json:"mode"`
+	}
+	if rec.Code != 200 || json.Unmarshal(rec.Body.Bytes(), &status) != nil || status.Mode != "development" {
+		t.Fatalf("unexpected status: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := do(h, "POST", "/v1/update", auth, `{"targets":{"web":"1.0.0"}}`); rec.Code != http.StatusConflict {
+		t.Fatalf("update got %d", rec.Code)
+	}
+	if rec := do(h, "POST", "/v1/backups/test/restore", auth, `{}`); rec.Code != http.StatusNotFound {
+		t.Fatalf("restore got %d", rec.Code)
 	}
 }
 

@@ -63,7 +63,7 @@ flowchart TD
     E -->|Failure| G[Attempt rollback]
 ```
 
-Services update in the order **streamer → indexer → web → API**. Pinned releases are stored in `/state/versions.env`.
+Services update in the order **logger → AI → streamer → indexer → web → API**. Pinned releases are stored in `/state/versions.env`.
 
 The updater writes structured JSON diagnostics to stdout. Operation lifecycle
 and progress records include `operation_id`, `operation_kind` and `task_id`
@@ -93,6 +93,8 @@ repository with `bash scripts/vendor-go-sdk.sh /path/to/flixer-updater`.
 | `APP_SECRET_FILE` | Shared application secret file, used when `STREAM_TOKEN_SECRET_FILE` is unset. |
 | `FLIXER_URL` | Flixer API origin, default `http://api:8081`; network logger enrollment requires HTTPS or literal loopback HTTP. |
 | `FLIXER_LOGGER_CONTROL_SOCKET` | Optional protected local socket for signed logger enrollment; takes precedence over network enrollment. |
+| `UPDATER_MODE` | `compose` (default), or `development` for authenticated status without update or restore operations. |
+| `LISTEN_HOST` | Optional bind address; use `127.0.0.1` for native development. |
 | `UPDATER_TOKEN` | Optional explicit token override. |
 | `DATA_PATH` | Persistent data; default `/data`. |
 | `STATE_DIR` | Version pins and state; default `/state`. |
@@ -109,6 +111,10 @@ repository with `bash scripts/vendor-go-sdk.sh /path/to/flixer-updater`.
 | `POST /v1/backups/{name}/restore` | Validate and restore a Flixer archive. |
 
 All `/v1` routes require bearer authentication. Restore validates archives and creates a safety backup before stopping affected services. The updater **does not update itself**; that image is managed separately. Rollback requires a known previous release, not an unversioned `latest` or `dev` image.
+
+Configure updater Sentry reporting in Flixer's General > Error Monitoring
+dashboard and restart the updater after changes. Reports contain generic errors,
+not operation logs, request bodies, secrets, or backup contents.
 
 ## 🔐 Operational security
 

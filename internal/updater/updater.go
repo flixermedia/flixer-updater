@@ -15,6 +15,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/flixermedia/flixer-updater/internal/monitoring"
 )
 
 // Components maps each Flixer component to its compose service and the env variable that pins its image tag.
@@ -23,10 +25,12 @@ var Components = map[string]struct{ Service, EnvVar string }{
 	"web":      {"web", "WEB_VERSION"},
 	"streamer": {"streamer", "STREAMER_VERSION"},
 	"indexer":  {"indexer", "INDEXER_VERSION"},
+	"ai":       {"ai", "AI_VERSION"},
+	"logger":   {"logger", "LOGGER_VERSION"},
 }
 
 // updateOrder keeps the API last: it is the service that asked for the update, and the dashboard needs it back.
-var updateOrder = []string{"streamer", "indexer", "web", "flixer"}
+var updateOrder = []string{"logger", "ai", "streamer", "indexer", "web", "flixer"}
 
 var releasePattern = regexp.MustCompile(`^\d{1,4}\.\d{1,4}\.\d{1,4}$`)
 
@@ -238,6 +242,7 @@ func (u *Updater) Start(req Request) (Run, error) {
 	u.log.Info("operation started", "task_id", run.ID, "operation_id", run.ID, "operation_kind", run.Kind)
 	u.wg.Add(1)
 	go func() {
+		defer monitoring.Recover()
 		defer u.wg.Done()
 		u.execute(order, targets, previous, req.DatabaseURL)
 	}()
@@ -333,6 +338,7 @@ func (u *Updater) StartOperation(kind, backupName string, encrypted bool, operat
 	u.log.Info("operation started", "task_id", run.ID, "operation_id", run.ID, "operation_kind", run.Kind)
 	u.wg.Add(1)
 	go func() {
+		defer monitoring.Recover()
 		defer u.wg.Done()
 		err := operation(Progress{updater: u})
 		if err != nil {

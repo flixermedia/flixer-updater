@@ -17,6 +17,7 @@ type Config struct {
 	Token      string
 	SecretFile string
 	FlixerURL  string
+	Mode       string
 
 	// ComposeFile, ProjectDir and ProjectName identify the stack to update. They are detected from the updater's own
 	// container labels when left empty.
@@ -45,10 +46,11 @@ func FromEnv(getenv func(string) string, version string) (Config, error) {
 	dataPath := valueOr(getenv("DATA_PATH"), "/data")
 	cfg := Config{
 		Version:         version,
-		Addr:            ":" + valueOr(getenv("PORT"), "8093"),
+		Addr:            strings.TrimSpace(getenv("LISTEN_HOST")) + ":" + valueOr(getenv("PORT"), "8093"),
 		Token:           strings.TrimSpace(getenv("UPDATER_TOKEN")),
 		SecretFile:      valueOr(getenv("STREAM_TOKEN_SECRET_FILE"), strings.TrimSpace(getenv("APP_SECRET_FILE"))),
 		FlixerURL:       strings.TrimRight(valueOr(getenv("FLIXER_URL"), "http://api:8081"), "/"),
+		Mode:            valueOr(getenv("UPDATER_MODE"), "compose"),
 		ComposeFile:     strings.TrimSpace(getenv("COMPOSE_FILE")),
 		ProjectDir:      strings.TrimSpace(getenv("COMPOSE_PROJECT_DIR")),
 		ProjectName:     strings.TrimSpace(getenv("COMPOSE_PROJECT_NAME")),
@@ -63,6 +65,9 @@ func FromEnv(getenv func(string) string, version string) (Config, error) {
 		HealthTimeout:   3 * time.Minute,
 		PollInterval:    3 * time.Second,
 		RestartServices: splitList(valueOr(getenv("RESTART_SERVICES"), "proxy")),
+	}
+	if cfg.Mode != "compose" && cfg.Mode != "development" {
+		return Config{}, errors.New("UPDATER_MODE must be compose or development")
 	}
 	if cfg.PassphraseFile == "" {
 		cfg.PassphraseFile = filepath.Join(cfg.BackupDir, ".passphrase")

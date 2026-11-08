@@ -4,7 +4,7 @@ ARG TARGETOS
 ARG TARGETARCH
 WORKDIR /src
 
-COPY go.mod ./
+COPY go.mod go.sum ./
 COPY third_party/flixer-logger ./third_party/flixer-logger
 COPY cmd ./cmd
 COPY internal ./internal
