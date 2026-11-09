@@ -274,6 +274,7 @@ func (s *Service) waitHealthy(ctx context.Context, service string) error {
 			return nil
 		}
 		if e == nil && state == "running" {
+			// A running container without a health check must remain up for three polls.
 			stable++
 			if stable >= 3 {
 				return nil
