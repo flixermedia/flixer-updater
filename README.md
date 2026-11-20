@@ -37,6 +37,7 @@ For the full platform, the API coordinates services; the browser interacts with 
 ## 🚀 Getting started
 
 ### Recommended: use the Flixer stack
+
 The updater is an **internal** Compose sidecar, not a public web application. Deploy it with Flixer's official stack so its secret volume, state volume, project mounts and Docker configuration agree.
 
 ### Go development
@@ -86,31 +87,33 @@ repository with `bash scripts/vendor-go-sdk.sh /path/to/flixer-updater`.
 
 ## ⚙️ Configuration
 
-| Variable | Purpose |
-| --- | --- |
-| `PORT` | Internal HTTP listener; default `8093`. |
-| `STREAM_TOKEN_SECRET_FILE` | Shared secret used to derive API bearer token. |
-| `APP_SECRET_FILE` | Shared application secret file, used when `STREAM_TOKEN_SECRET_FILE` is unset. |
-| `FLIXER_URL` | Flixer API origin, default `http://api:8081`; network logger enrollment requires HTTPS or literal loopback HTTP. |
-| `FLIXER_LOGGER_CONTROL_SOCKET` | Optional protected local socket for signed logger enrollment; takes precedence over network enrollment. |
-| `UPDATER_MODE` | `compose` (default), or `development` for authenticated status without update or restore operations. |
-| `LISTEN_HOST` | Optional bind address; use `127.0.0.1` for native development. |
-| `UPDATER_TOKEN` | Optional explicit token override. |
-| `DATA_PATH` | Persistent data; default `/data`. |
-| `STATE_DIR` | Version pins and state; default `/state`. |
-| `HEALTH_TIMEOUT` | Per-component health timeout; default `3m`. |
-| `BACKUP_PASSPHRASE_FILE` | Optional archive encryption passphrase. |
+| Variable                       | Purpose                                                                                                          |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------------- |
+| `PORT`                         | Internal HTTP listener; default `8093`.                                                                          |
+| `STREAM_TOKEN_SECRET_FILE`     | Shared secret used to derive API bearer token.                                                                   |
+| `APP_SECRET_FILE`              | Shared application secret file, used when `STREAM_TOKEN_SECRET_FILE` is unset.                                   |
+| `FLIXER_URL`                   | Flixer API origin, default `http://api:8081`; network logger enrollment requires HTTPS or literal loopback HTTP. |
+| `FLIXER_LOGGER_CONTROL_SOCKET` | Optional protected local socket for signed logger enrollment; takes precedence over network enrollment.          |
+| `UPDATER_MODE`                 | `compose` (default), or `development` for authenticated status without update or restore operations.             |
+| `LISTEN_HOST`                  | Optional bind address; use `127.0.0.1` for native development.                                                   |
+| `UPDATER_TOKEN`                | Optional explicit token override.                                                                                |
+| `DATA_PATH`                    | Persistent data; default `/data`.                                                                                |
+| `STATE_DIR`                    | Version pins and state; default `/state`.                                                                        |
+| `HEALTH_TIMEOUT`               | Per-component health timeout; default `3m`.                                                                      |
+| `BACKUP_PASSPHRASE_FILE`       | Optional archive encryption passphrase.                                                                          |
 
 ## 🔌 HTTP API
 
-| Route | Function |
-| --- | --- |
-| `GET /health` | Public liveness within private network. |
-| `GET /v1/status` | Current pins and operation status. |
-| `POST /v1/update` | Start a pinned component update. |
-| `POST /v1/backups/{name}/restore` | Validate and restore a Flixer archive. |
+| Route                             | Function                                |
+| --------------------------------- | --------------------------------------- |
+| `GET /health`                     | Public liveness within private network. |
+| `GET /v1/status`                  | Current pins and operation status.      |
+| `POST /v1/update`                 | Start a pinned component update.        |
+| `POST /v1/backups/{name}/restore` | Validate and restore a Flixer archive.  |
 
 All `/v1` routes require bearer authentication. Restore validates archives and creates a safety backup before stopping affected services. The updater **does not update itself**; that image is managed separately. Rollback requires a known previous release, not an unversioned `latest` or `dev` image.
+
+After reconnecting the proxy, the updater checks its health and rechecks every updated service. A failed check triggers a rollback; the proxy and restored services are checked again before rollback is reported as successful. These container health checks do not prove cross-service API or database schema compatibility. Rollback restores image versions, not the database backup; review migration compatibility and restore the backup separately when required.
 
 Configure updater Sentry reporting in Flixer's General > Error Monitoring
 dashboard and restart the updater after changes. Reports contain generic errors,
@@ -122,15 +125,15 @@ Mounting `/var/run/docker.sock` and read/write configuration/secrets grants powe
 
 ## 🧩 Flixer ecosystem
 
-| Repository | Purpose |
-| --- | --- |
-| [Flixer](https://github.com/flixermedia/flixer) | The self-hosted backend API, authentication, libraries, and administration service. |
-| [Flixer Web](https://github.com/flixermedia/flixer-web) | The Vue 3 application that powers browsing, sign-in, discovery, and playback interfaces. |
-| [Flixer Streamer](https://github.com/flixermedia/flixer-streamer) | The Go service responsible for authorised media delivery and FFmpeg processing. |
-| [Flixer Indexer](https://github.com/flixermedia/flixer-indexer) | The Go worker and API service for discovering, identifying, probing, and enriching media. |
-| [Flixer Updater](https://github.com/flixermedia/flixer-updater) | The Go sidecar that orchestrates Docker Compose updates and restores. |
-| [Flixer Plugins](https://github.com/flixermedia/flixer-plugins) | The official versioned catalogue of Flixer plugins and plugin schemas. |
-| [Flixer Docs](https://github.com/flixermedia/flixer-docs) | The Docusaurus source for Flixer platform documentation. |
+| Repository                                                        | Purpose                                                                                   |
+| ----------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| [Flixer](https://github.com/flixermedia/flixer)                   | The self-hosted backend API, authentication, libraries, and administration service.       |
+| [Flixer Web](https://github.com/flixermedia/flixer-web)           | The Vue 3 application that powers browsing, sign-in, discovery, and playback interfaces.  |
+| [Flixer Streamer](https://github.com/flixermedia/flixer-streamer) | The Go service responsible for authorised media delivery and FFmpeg processing.           |
+| [Flixer Indexer](https://github.com/flixermedia/flixer-indexer)   | The Go worker and API service for discovering, identifying, probing, and enriching media. |
+| [Flixer Updater](https://github.com/flixermedia/flixer-updater)   | The Go sidecar that orchestrates Docker Compose updates and restores.                     |
+| [Flixer Plugins](https://github.com/flixermedia/flixer-plugins)   | The official versioned catalogue of Flixer plugins and plugin schemas.                    |
+| [Flixer Docs](https://github.com/flixermedia/flixer-docs)         | The Docusaurus source for Flixer platform documentation.                                  |
 
 ## 🤝 Contributing
 

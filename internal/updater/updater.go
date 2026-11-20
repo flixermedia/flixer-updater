@@ -297,7 +297,17 @@ func (u *Updater) execute(order []string, targets, previous map[string]string, d
 		}
 	}
 
-	u.restartProxies(ctx)
+	if err := u.restartProxies(ctx); err != nil {
+		u.rollback(ctx, touched, targets, previous, pinnedBefore, "Could not reconnect the reverse proxy: "+err.Error())
+		return
+	}
+	for _, component := range order {
+		u.step("verify-final:"+component, fmt.Sprintf("Checking %s after the rollout", component))
+		if err := u.waitHealthy(ctx, Components[component].Service); err != nil {
+			u.rollback(ctx, touched, targets, previous, pinnedBefore, fmt.Sprintf("%s did not remain healthy after the rollout: %v", component, err))
+			return
+		}
+	}
 	u.finish(StatusSucceeded, "")
 }
 
@@ -381,7 +391,17 @@ func (u *Updater) rollback(ctx context.Context, touched []string, targets, previ
 			return
 		}
 	}
-	u.restartProxies(ctx)
+	if err := u.restartProxies(ctx); err != nil {
+		u.finish(StatusRollbackFailed, fmt.Sprintf("%s Previous versions were restored, but the reverse proxy could not be reconnected: %v", reason, err))
+		return
+	}
+	for _, component := range revert {
+		u.step("verify-rollback:"+component, fmt.Sprintf("Checking %s after rollback", component))
+		if err := u.waitHealthy(ctx, Components[component].Service); err != nil {
+			u.finish(StatusRollbackFailed, fmt.Sprintf("%s %s did not remain healthy after rollback: %v", reason, component, err))
+			return
+		}
+	}
 	message := reason + " The previous versions were restored."
 	if len(stuck) > 0 {
 		sort.Strings(stuck)
@@ -392,14 +412,20 @@ func (u *Updater) rollback(ctx context.Context, touched []string, targets, previ
 	u.finish(StatusRolledBack, message)
 }
 
-func (u *Updater) restartProxies(ctx context.Context) {
+func (u *Updater) restartProxies(ctx context.Context) error {
 	if len(u.opts.RestartServices) == 0 {
-		return
+		return nil
 	}
 	u.step("proxy", "Reconnecting the reverse proxy")
 	if _, err := u.opts.Docker.Compose(ctx, append([]string{"restart"}, u.opts.RestartServices...)...); err != nil {
-		u.logf("Restarting %s failed: %v", strings.Join(u.opts.RestartServices, ", "), err)
+		return fmt.Errorf("restarting %s: %w", strings.Join(u.opts.RestartServices, ", "), err)
 	}
+	for _, service := range u.opts.RestartServices {
+		if err := u.waitHealthy(ctx, service); err != nil {
+			return fmt.Errorf("%s did not become healthy: %w", service, err)
+		}
+	}
+	return nil
 }
 
 // WaitHealthy waits for a compose service using the updater's standard health policy.

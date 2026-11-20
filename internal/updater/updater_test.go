@@ -14,10 +14,13 @@ import (
 )
 
 type fakeDocker struct {
-	mu       sync.Mutex
-	calls    []string
-	health   map[string]string
-	failPull bool
+	mu              sync.Mutex
+	calls           []string
+	health          map[string]string
+	healthSequence  map[string][]string
+	failPull        bool
+	failRestartOnce bool
+	failRestart     bool
 	// healthAfter lets a service be unhealthy only for the new version.
 	unhealthyOnce map[string]bool
 }
@@ -29,12 +32,23 @@ func (f *fakeDocker) Compose(_ context.Context, args ...string) (string, error) 
 	if f.failPull && args[0] == "pull" {
 		return "", errors.New("pull denied")
 	}
+	if f.failRestartOnce && args[0] == "restart" {
+		f.failRestartOnce = false
+		return "", errors.New("restart failed")
+	}
+	if f.failRestart && args[0] == "restart" {
+		return "", errors.New("restart failed")
+	}
 	return "", nil
 }
 
 func (f *fakeDocker) Health(_ context.Context, service string) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if states := f.healthSequence[service]; len(states) > 0 {
+		f.healthSequence[service] = states[1:]
+		return states[0], nil
+	}
 	if f.unhealthyOnce[service] {
 		f.unhealthyOnce[service] = false
 		return "unhealthy", nil
@@ -125,6 +139,70 @@ func TestUnhealthyRollsBack(t *testing.T) {
 	}
 	if raw, _ := os.ReadFile(u.VersionsFile()); !strings.Contains(string(raw), "WEB_VERSION=0.8.0") {
 		t.Fatalf("not restored: %s", raw)
+	}
+}
+
+func TestProxyRestartFailureRollsBack(t *testing.T) {
+	d := &fakeDocker{failRestartOnce: true}
+	u := newUpdater(t, d, nil)
+	_, _ = u.Start(Request{Targets: map[string]string{"web": "0.9.0"}, Current: map[string]string{"web": "0.8.0"}})
+	u.Wait()
+	if run := u.Snapshot().Run; run.Status != StatusRolledBack || !strings.Contains(run.Error, "restart failed") {
+		t.Fatalf("run %+v", run)
+	}
+	if raw, _ := os.ReadFile(u.VersionsFile()); !strings.Contains(string(raw), "WEB_VERSION=0.8.0") {
+		t.Fatalf("not restored: %s", raw)
+	}
+}
+
+func TestProxyRestartFailureDuringRollbackIsReported(t *testing.T) {
+	d := &fakeDocker{failRestart: true}
+	u := newUpdater(t, d, nil)
+	_, _ = u.Start(Request{Targets: map[string]string{"web": "0.9.0"}, Current: map[string]string{"web": "0.8.0"}})
+	u.Wait()
+	if run := u.Snapshot().Run; run.Status != StatusRollbackFailed || !strings.Contains(run.Error, "reverse proxy could not be reconnected") {
+		t.Fatalf("run %+v", run)
+	}
+}
+
+func TestFinalHealthFailureRollsBackAllUpdatedComponents(t *testing.T) {
+	d := &fakeDocker{healthSequence: map[string][]string{"web": {"healthy", "unhealthy", "healthy"}}}
+	u := newUpdater(t, d, nil)
+	_, _ = u.Start(Request{
+		Targets: map[string]string{"web": "0.9.0", "flixer": "1.1.0"},
+		Current: map[string]string{"web": "0.8.0", "flixer": "1.0.0"},
+	})
+	u.Wait()
+	if run := u.Snapshot().Run; run.Status != StatusRolledBack || !strings.Contains(run.Error, "did not remain healthy") {
+		t.Fatalf("run %+v", run)
+	}
+	if raw, _ := os.ReadFile(u.VersionsFile()); !strings.Contains(string(raw), "WEB_VERSION=0.8.0") || !strings.Contains(string(raw), "FLIXER_VERSION=1.0.0") {
+		t.Fatalf("versions not restored: %s", raw)
+	}
+	for _, call := range []string{"up --detach --no-deps web", "up --detach --no-deps api"} {
+		if strings.Count(strings.Join(d.calls, "\n"), call) != 2 {
+			t.Fatalf("expected update and restore for %s: %v", call, d.calls)
+		}
+	}
+}
+
+func TestFinalRollbackHealthFailureIsReported(t *testing.T) {
+	d := &fakeDocker{healthSequence: map[string][]string{"web": {"healthy", "unhealthy", "healthy", "unhealthy"}}}
+	u := newUpdater(t, d, nil)
+	_, _ = u.Start(Request{Targets: map[string]string{"web": "0.9.0"}, Current: map[string]string{"web": "0.8.0"}})
+	u.Wait()
+	if run := u.Snapshot().Run; run.Status != StatusRollbackFailed || !strings.Contains(run.Error, "did not remain healthy after rollback") {
+		t.Fatalf("run %+v", run)
+	}
+}
+
+func TestUnhealthyProxyRollsBack(t *testing.T) {
+	d := &fakeDocker{healthSequence: map[string][]string{"proxy": {"unhealthy", "healthy"}}}
+	u := newUpdater(t, d, nil)
+	_, _ = u.Start(Request{Targets: map[string]string{"web": "0.9.0"}, Current: map[string]string{"web": "0.8.0"}})
+	u.Wait()
+	if run := u.Snapshot().Run; run.Status != StatusRolledBack || !strings.Contains(run.Error, "proxy did not become healthy") {
+		t.Fatalf("run %+v", run)
 	}
 }
 
