@@ -58,11 +58,19 @@ type Manifest struct {
 	CacheFiles    int               `json:"cacheFiles"`
 }
 
-var knownComponents = map[string]bool{"database": true, "config": true, "secrets": true, "cache": true}
+var knownComponents = map[string]bool{
+	"database":       true,
+	"config":         true,
+	"secrets":        true,
+	"avatars":        true,
+	"advertisements": true,
+	"plugins":        true,
+	"cache":          true,
+}
 
 func normalizeComponents(in []string) ([]string, error) {
 	if len(in) == 0 {
-		in = []string{"database", "config", "secrets", "cache"}
+		in = []string{"database", "config", "secrets", "avatars", "advertisements", "plugins"}
 	}
 	seen := map[string]bool{}
 	for _, c := range in {
@@ -75,7 +83,7 @@ func normalizeComponents(in []string) ([]string, error) {
 		seen[c] = true
 	}
 	out := make([]string, 0, len(seen))
-	for _, c := range []string{"database", "config", "secrets", "cache"} {
+	for _, c := range []string{"database", "config", "secrets", "avatars", "advertisements", "plugins", "cache"} {
 		if seen[c] {
 			out = append(out, c)
 		}

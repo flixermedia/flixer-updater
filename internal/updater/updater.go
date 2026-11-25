@@ -390,10 +390,16 @@ func (u *Updater) StartOperation(kind, backupName string, encrypted bool, operat
 	snapshot := *run
 	u.mu.Unlock()
 	u.log.Info("operation started", "task_id", run.ID, "operation_id", run.ID, "operation_kind", run.Kind)
+	if kind == "restore" {
+		u.setMaintenance(true)
+	}
 	u.wg.Add(1)
 	go func() {
 		defer monitoring.Recover()
 		defer u.wg.Done()
+		if kind == "restore" {
+			defer u.setMaintenance(false)
+		}
 		err := operation(Progress{updater: u})
 		if err != nil {
 			u.finish(StatusFailed, err.Error())

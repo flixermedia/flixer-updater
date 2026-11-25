@@ -32,6 +32,9 @@ type Config struct {
 	ConfigDir      string
 	SecretsDir     string
 	CacheDir       string
+	AvatarsDir     string
+	AdsDir         string
+	PluginsDir     string
 	DatabaseURL    string
 	BackupsKept    int
 
@@ -60,6 +63,9 @@ func FromEnv(getenv func(string) string, version string) (Config, error) {
 		ConfigDir:       filepath.Join(dataPath, "config"),
 		SecretsDir:      valueOr(getenv("SECRETS_DIR"), "/run/flixer-secrets"),
 		CacheDir:        filepath.Join(dataPath, "cache"),
+		AvatarsDir:      filepath.Join(dataPath, "avatars"),
+		AdsDir:          filepath.Join(dataPath, "advertisements"),
+		PluginsDir:      filepath.Join(dataPath, "plugins"),
 		DatabaseURL:     strings.TrimSpace(getenv("DATABASE_URL")),
 		BackupsKept:     5,
 		HealthTimeout:   3 * time.Minute,

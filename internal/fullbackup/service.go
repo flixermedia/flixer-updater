@@ -30,8 +30,8 @@ type Progress interface {
 	FailStep()
 }
 type Service struct {
-	Dir, PassphraseFile, ConfigDir, SecretsDir, CacheDir string
-	DatabaseURL                                          string
+	Dir, PassphraseFile, ConfigDir, SecretsDir, CacheDir, AvatarsDir, AdsDir, PluginsDir string
+	DatabaseURL                                                                          string
 	Versions                                             func() map[string]string
 	Docker                                               Docker
 	HealthWaiter                                         func(context.Context, string) error
@@ -71,6 +71,7 @@ func (s *Service) Path(name string) (string, error) {
 }
 
 func (s *Service) Create(ctx context.Context, req BackupRequest, passphrase string, progress Progress) (string, error) {
+	explicit := len(req.Components) > 0
 	components, e := normalizeComponents(req.Components)
 	if e != nil {
 		return "", e
@@ -83,7 +84,29 @@ func (s *Service) Create(ctx context.Context, req BackupRequest, passphrase stri
 	for i := 1; fileExists(filepath.Join(s.Dir, name)); i++ {
 		name = fmt.Sprintf("flixer-%s-%dZ.flxbak", strings.TrimSuffix(timestamp, "Z"), i)
 	}
-	sources := map[string]string{"config": s.ConfigDir, "secrets": s.SecretsDir, "cache": s.CacheDir}
+	sources := map[string]string{
+		"config":         s.ConfigDir,
+		"secrets":        s.SecretsDir,
+		"avatars":        s.AvatarsDir,
+		"advertisements": s.AdsDir,
+		"plugins":        s.PluginsDir,
+		"cache":          s.CacheDir,
+	}
+	if !explicit {
+		filtered := make([]string, 0, len(components))
+		for _, c := range components {
+			if c == "database" {
+				filtered = append(filtered, c)
+				continue
+			}
+			if sources[c] != "" {
+				if _, statErr := os.Stat(sources[c]); statErr == nil {
+					filtered = append(filtered, c)
+				}
+			}
+		}
+		components = filtered
+	}
 	var dumpFile string
 	if req.DatabaseURL == "" {
 		req.DatabaseURL = s.DatabaseURL
@@ -176,8 +199,7 @@ func (s *Service) Restore(ctx context.Context, p *PreparedRestore, req RestoreRe
 	defer p.Close()
 	// The safety copy is mandatory and is created before stopping any services.
 	progress.Step("safety-backup", "Creating a safety backup of the current state")
-	components := []string{"database", "config", "secrets", "cache"}
-	safetyName, retErr = s.Create(ctx, BackupRequest{DatabaseURL: req.DatabaseURL, Components: components}, safetyPassphrase, progress)
+	safetyName, retErr = s.Create(ctx, BackupRequest{DatabaseURL: req.DatabaseURL}, safetyPassphrase, progress)
 	if retErr != nil {
 		return "", fmt.Errorf("safety backup failed; restore aborted: %w", retErr)
 	}
@@ -228,10 +250,21 @@ func (s *Service) Restore(ctx context.Context, p *PreparedRestore, req RestoreRe
 			return safetyName, fmt.Errorf("safety backup %s created; database restore failed: %w", safetyName, e)
 		}
 	}
-	for _, component := range []string{"config", "secrets", "cache"} {
+	targetDirs := map[string]string{
+		"config":         s.ConfigDir,
+		"secrets":        s.SecretsDir,
+		"avatars":        s.AvatarsDir,
+		"advertisements": s.AdsDir,
+		"plugins":        s.PluginsDir,
+		"cache":          s.CacheDir,
+	}
+	for _, component := range []string{"config", "secrets", "avatars", "advertisements", "plugins", "cache"} {
 		if contains(p.Components, component) {
+			target := targetDirs[component]
+			if target == "" {
+				continue
+			}
 			progress.Step("restore-"+component, "Restoring "+component)
-			target := map[string]string{"config": s.ConfigDir, "secrets": s.SecretsDir, "cache": s.CacheDir}[component]
 			if e := replaceContents(filepath.Join(p.stage, component), target); e != nil {
 				progress.FailStep()
 				return safetyName, fmt.Errorf("safety backup %s created; restoring %s failed: %w", safetyName, component, e)
