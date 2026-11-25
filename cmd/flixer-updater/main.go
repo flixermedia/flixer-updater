@@ -104,6 +104,10 @@ func run(logger *slog.Logger) error {
 		if _, err := os.Stat(cfg.ComposeFile); err != nil {
 			return errors.New("the compose file " + cfg.ComposeFile + " is not visible in the container; mount the project folder at the same path it has on the host")
 		}
+		go func() {
+			defer monitoring.Recover()
+			updater.NormalizeOwnership(logger, updater.DefaultDataPaths...)
+		}()
 	}
 
 	// The project's own .env is listed explicitly because passing --env-file turns off compose's default of reading it.

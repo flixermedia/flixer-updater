@@ -56,6 +56,11 @@ type Docker interface {
 	Health(ctx context.Context, service string) (string, error)
 }
 
+// SelfUpdater is optionally implemented by Docker to pull and recreate the updater container itself.
+type SelfUpdater interface {
+	SelfUpdate(ctx context.Context) (bool, error)
+}
+
 // Backuper snapshots the database before an update.
 type Backuper interface {
 	Backup(ctx context.Context, databaseURL string) (string, error)
@@ -110,6 +115,7 @@ type Options struct {
 	HealthTimeout   time.Duration
 	PollInterval    time.Duration
 	RestartServices []string
+	DataPaths       []string
 	Docker          Docker
 	Backup          Backuper
 	Logger          *slog.Logger
@@ -129,6 +135,9 @@ type Updater struct {
 func New(opts Options) (*Updater, error) {
 	if opts.Logger == nil {
 		opts.Logger = slog.Default()
+	}
+	if opts.DataPaths == nil {
+		opts.DataPaths = DefaultDataPaths
 	}
 	if err := os.MkdirAll(opts.StateDir, 0o755); err != nil {
 		return nil, err
@@ -281,6 +290,8 @@ func (u *Updater) execute(order []string, targets, previous map[string]string, d
 		return
 	}
 
+	NormalizeOwnership(u.log, u.opts.DataPaths...)
+
 	var touched []string
 	for _, component := range order {
 		service := Components[component].Service
@@ -309,6 +320,13 @@ func (u *Updater) execute(order []string, targets, previous map[string]string, d
 		}
 	}
 	u.finish(StatusSucceeded, "")
+	if su, ok := u.opts.Docker.(SelfUpdater); ok {
+		if updated, err := su.SelfUpdate(ctx); err != nil {
+			u.log.Warn("flixer-updater self-update check failed", "error", err)
+		} else if updated {
+			u.log.Info("flixer-updater self-update scheduled")
+		}
+	}
 }
 
 // Progress reports steps and logs for a non-update operation.

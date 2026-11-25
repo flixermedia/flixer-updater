@@ -102,3 +102,47 @@ func Hostname() string {
 	name, _ := os.Hostname()
 	return name
 }
+
+// SelfUpdate pulls the flixer-updater image and, if it differs from the running container's image,
+// spawns a detached one-off container to recreate flixer-updater without interrupting the caller.
+func (c *CLI) SelfUpdate(ctx context.Context) (bool, error) {
+	container := Hostname()
+	if container == "" {
+		return false, nil
+	}
+	currentID, err := c.run(ctx, "docker", "inspect", "--format", "{{.Image}}", container)
+	if err != nil {
+		return false, err
+	}
+	imageRef, err := c.run(ctx, "docker", "inspect", "--format", "{{.Config.Image}}", container)
+	if err != nil {
+		return false, err
+	}
+	imageRef = strings.TrimSpace(imageRef)
+	if imageRef == "" {
+		return false, nil
+	}
+	if _, err := c.Compose(ctx, "pull", "flixer-updater"); err != nil {
+		return false, err
+	}
+	latestID, err := c.run(ctx, "docker", "image", "inspect", "--format", "{{.Id}}", imageRef)
+	if err != nil {
+		return false, err
+	}
+	if strings.TrimSpace(latestID) == "" || strings.TrimSpace(latestID) == strings.TrimSpace(currentID) {
+		return false, nil
+	}
+	recreateCmd := "sleep 1 && exec docker " + shellJoin(append(append([]string{}, c.base...), "up", "--detach", "--no-deps", "flixer-updater"))
+	if _, err := c.Compose(ctx, "run", "-d", "--rm", "--no-deps", "--entrypoint", "sh", "flixer-updater", "-c", recreateCmd); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func shellJoin(args []string) string {
+	quoted := make([]string, len(args))
+	for i, arg := range args {
+		quoted[i] = "'" + strings.ReplaceAll(arg, "'", "'\"'\"'") + "'"
+	}
+	return strings.Join(quoted, " ")
+}
