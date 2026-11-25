@@ -111,14 +111,15 @@ type state struct {
 
 // Options configures an Updater.
 type Options struct {
-	StateDir        string
-	HealthTimeout   time.Duration
-	PollInterval    time.Duration
-	RestartServices []string
-	DataPaths       []string
-	Docker          Docker
-	Backup          Backuper
-	Logger          *slog.Logger
+	StateDir            string
+	HealthTimeout       time.Duration
+	PollInterval        time.Duration
+	RestartServices     []string
+	DataPaths           []string
+	MaintenanceFlagPath string
+	Docker              Docker
+	Backup              Backuper
+	Logger              *slog.Logger
 }
 
 // Updater serialises updates and remembers what it did.
@@ -139,6 +140,9 @@ func New(opts Options) (*Updater, error) {
 	if opts.DataPaths == nil {
 		opts.DataPaths = DefaultDataPaths
 	}
+	if opts.MaintenanceFlagPath == "" {
+		opts.MaintenanceFlagPath = "/data/nginx/maintenance.on"
+	}
 	if err := os.MkdirAll(opts.StateDir, 0o755); err != nil {
 		return nil, err
 	}
@@ -155,6 +159,7 @@ func New(opts Options) (*Updater, error) {
 		now := time.Now().UTC()
 		run.Status, run.FinishedAt, run.Error = StatusFailed, &now, "The updater stopped while this update was running."
 		u.log.Warn("operation interrupted by updater restart", "task_id", run.ID, "operation_id", run.ID, "operation_kind", run.Kind)
+		u.setMaintenance(false)
 	}
 	if err := u.writeVersionsFile(u.state.Versions); err != nil {
 		return nil, err
@@ -261,6 +266,8 @@ func (u *Updater) Start(req Request) (Run, error) {
 func (u *Updater) execute(order []string, targets, previous map[string]string, databaseURL string) {
 	ctx := context.Background()
 	pinnedBefore := u.Snapshot().Versions
+	u.setMaintenance(true)
+	defer u.setMaintenance(false)
 
 	if u.opts.Backup != nil {
 		u.step("backup", "Backing up the database")
@@ -326,6 +333,25 @@ func (u *Updater) execute(order []string, targets, previous map[string]string, d
 		} else if updated {
 			u.log.Info("flixer-updater self-update scheduled")
 		}
+	}
+}
+
+func (u *Updater) setMaintenance(active bool) {
+	path := u.opts.MaintenanceFlagPath
+	if path == "" {
+		return
+	}
+	if !active {
+		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			u.log.Warn("failed to remove maintenance flag", "path", path, "error", err)
+		}
+		return
+	}
+	if _, err := os.Stat(filepath.Dir(path)); err != nil {
+		return
+	}
+	if err := os.WriteFile(path, []byte("updating\n"), 0o644); err != nil {
+		u.log.Warn("failed to write maintenance flag", "path", path, "error", err)
 	}
 }
 
